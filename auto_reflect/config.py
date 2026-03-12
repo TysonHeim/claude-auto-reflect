@@ -25,6 +25,7 @@ OBSERVATIONS_DIR = os.path.join(AUTO_REFLECT_DIR, "observations")
 PATTERNS_DIR = os.path.join(AUTO_REFLECT_DIR, "patterns")
 IMPROVEMENTS_DIR = os.path.join(AUTO_REFLECT_DIR, "improvements")
 BASELINES_DIR = os.path.join(AUTO_REFLECT_DIR, "baselines")
+DEEP_ANALYSIS_DIR = os.path.join(AUTO_REFLECT_DIR, "deep-analysis")
 
 # Log files
 GATE_LOG = os.path.join(AUTO_REFLECT_DIR, "gate-log.json")
@@ -52,5 +53,5 @@ PATTERN_MIN_OBSERVATIONS = int(os.environ.get("AUTO_REFLECT_MIN_OBS_FOR_PATTERNS
 
 def ensure_dirs():
     """Create all data directories if they don't exist."""
-    for d in [OBSERVATIONS_DIR, PATTERNS_DIR, IMPROVEMENTS_DIR, BASELINES_DIR]:
+    for d in [OBSERVATIONS_DIR, PATTERNS_DIR, IMPROVEMENTS_DIR, BASELINES_DIR, DEEP_ANALYSIS_DIR]:
         os.makedirs(d, exist_ok=True)

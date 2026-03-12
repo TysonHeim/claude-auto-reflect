@@ -258,6 +258,20 @@ def analyze(path):
     tool_counts = Counter(tp["name"] for tp in tool_pairs)
     error_tools = Counter(tp["name"] for tp in tool_pairs if tp["is_error"])
 
+    # Capture actual error messages (truncated) for smarter proposal generation
+    error_messages = defaultdict(list)
+    for tp in tool_pairs:
+        if tp["is_error"]:
+            result = tp.get("result_content", "")
+            if isinstance(result, list):
+                result = " ".join(
+                    b.get("text", "") if isinstance(b, dict) else str(b)
+                    for b in result
+                )
+            msg = str(result).strip()[:300]
+            if msg:
+                error_messages[tp["name"]].append(msg)
+
     user_msgs = [m for m in messages if m["role"] == "user"]
     assistant_msgs = [m for m in messages if m["role"] == "assistant"]
 
@@ -289,6 +303,7 @@ def analyze(path):
         "tool_distribution": dict(tool_counts.most_common()),
         "error_distribution": dict(error_tools.most_common()),
         "corrections": [c["text"] for c in corrections],
+        "error_messages": {k: v[:5] for k, v in error_messages.items()},  # top 5 per tool
         "retries": retries,
     }
     metrics["score"] = compute_score(metrics)
