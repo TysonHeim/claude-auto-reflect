@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "claude-auto-reflect"
+version = "0.1.0"
+description = "Self-improvement feedback loop for Claude Code"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.8"
+# Zero external dependencies — stdlib only
+
+[project.scripts]
+auto-reflect = "auto_reflect.orchestrate:main"
+auto-reflect-analyze = "auto_reflect.analyze_session:main"
+auto-reflect-proposals = "auto_reflect.proposals:main"
+auto-reflect-eval-gate = "auto_reflect.eval_gate:main"

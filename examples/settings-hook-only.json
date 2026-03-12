@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/auto-reflect/hooks/auto-reflect.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

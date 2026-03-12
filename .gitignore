@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Data directories (regenerable)
+observations/
+patterns/
+improvements/
+baselines/
+
+# Logs
+*.log
+hook-log.txt
+
+# OS
+.DS_Store
+Thumbs.db

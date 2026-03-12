@@ -1,0 +1,41 @@
+{
+  "session_file": "/Users/you/.claude/projects/-Users-you-code-myapp/abc12345-6789-abcd-ef01-234567890abc.jsonl",
+  "session_id": "abc12345-6789-abcd-ef01-234567890abc",
+  "start_time": "2026-03-12T09:15:23.456Z",
+  "end_time": "2026-03-12T09:45:12.789Z",
+  "total_entries": 142,
+  "user_message_count": 8,
+  "assistant_message_count": 12,
+  "total_turns": 8,
+  "tool_call_count": 47,
+  "error_count": 2,
+  "correction_count": 1,
+  "retry_count": 1,
+  "skills_used": ["add-model", "git-workflow"],
+  "tool_distribution": {
+    "Read": 12,
+    "Edit": 8,
+    "Bash": 7,
+    "Grep": 6,
+    "Glob": 5,
+    "Write": 4,
+    "Skill": 2,
+    "Agent": 2,
+    "ToolSearch": 1
+  },
+  "error_distribution": {
+    "Edit": 1,
+    "Bash": 1
+  },
+  "corrections": [
+    "no, don't use that approach — use the existing helper instead"
+  ],
+  "retries": [
+    {
+      "tool": "Edit",
+      "error_index": 5,
+      "retry_index": 7
+    }
+  ],
+  "score": 89
+}
