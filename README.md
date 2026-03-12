@@ -106,9 +106,16 @@ The detector requires statistical significance before surfacing anything:
 - 20+ observations for trend detection (80/20 split, timestamp-sorted)
 - MCP tools grouped by server prefix (not per-method noise)
 
-## Eval Gate
+## Eval Gate (Advanced, Optional)
 
-Before any skill change is applied:
+The eval gate is a safety mechanism for users who have **custom skills with eval test suites**. It prevents self-improvement from introducing regressions by running evals before and after changes.
+
+**You do NOT need this to use auto-reflect.** The core loop (score → detect → propose) works without it. The eval gate only activates if you have:
+1. A skills directory with Claude Code skills
+2. Each skill has an `evals/trigger-eval.json` file
+3. An eval runner script that can execute those evals
+
+If you do have this setup:
 
 ```bash
 auto-reflect-eval-gate --skill <name> --validate
@@ -119,7 +126,7 @@ auto-reflect-eval-gate --skill <name> --validate
 - **BLOCKED** if regression >10%
 - **PASSED** if stable or improved (baseline auto-updates on improvement)
 
-The eval gate is optional — it only activates if you have skills with eval files.
+The eval runner interface expects a script at `$AUTO_REFLECT_EVAL_TOOLS/scripts/run_eval.py` that accepts `--eval-set <path> --skill-path <path> --verbose` and outputs JSON results. You can point `AUTO_REFLECT_EVAL_TOOLS` to your own harness.
 
 ## Proposal Types
 
