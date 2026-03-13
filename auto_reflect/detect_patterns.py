@@ -240,17 +240,78 @@ def detect_skill_gaps(observations):
     return patterns
 
 
-def save_patterns(all_patterns):
-    """Save detected patterns."""
+def generate_improvement_proposals(all_patterns):
+    """Generate concrete improvement proposals from detected patterns."""
+    proposals = []
+
+    for p in all_patterns:
+        if p["type"] == "frequent_tool_errors":
+            proposals.append({
+                "pattern": p,
+                "proposal": f"Investigate why {p['tool']} fails in {p['error_rate']*100:.0f}% of sessions. "
+                           f"Consider: adding error handling, pre-validation, or a fallback strategy.",
+                "action": "feedback_memory",
+                "priority": "high" if p["error_rate"] > 0.5 else "medium",
+            })
+        elif p["type"] == "recurring_corrections":
+            proposals.append({
+                "pattern": p,
+                "proposal": f"Human corrected agent in {p['correction_rate']*100:.0f}% of sessions. "
+                           f"Top themes: {', '.join(p['top_themes'])}. "
+                           f"Consider creating feedback memories for these patterns.",
+                "action": "feedback_memory",
+                "priority": "high",
+            })
+        elif p["type"] == "frequent_retries":
+            proposals.append({
+                "pattern": p,
+                "proposal": f"{p['tool']} required retries {p['retry_count']} times. "
+                           f"Consider improving input validation or adding pre-checks.",
+                "action": "skill_patch",
+                "priority": "medium",
+            })
+        elif p["type"] == "score_decline":
+            proposals.append({
+                "pattern": p,
+                "proposal": f"Performance declining: recent avg {p['recent_avg']} vs earlier {p['earlier_avg']} "
+                           f"(delta: {p['delta']}). Review recent sessions for systemic issues.",
+                "action": "investigation",
+                "priority": "high",
+            })
+        elif p["type"] == "low_skill_usage":
+            proposals.append({
+                "pattern": p,
+                "proposal": f"Skills used in only {p['sessions_with_skills']}/{p['sessions_with_skills'] + p['sessions_without_skills']} sessions. "
+                           f"Score with skills: {p['avg_score_with']} vs without: {p['avg_score_without']}. "
+                           f"Consider improving skill trigger descriptions.",
+                "action": "skill_patch",
+                "priority": "medium",
+            })
+
+    return proposals
+
+
+def save_patterns(all_patterns, proposals=None):
+    """Save detected patterns and optionally proposals."""
     ensure_dirs()
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+
+    # Save patterns
     patterns_file = os.path.join(PATTERNS_DIR, f"{timestamp}_patterns.json")
     with open(patterns_file, "w") as f:
         json.dump(all_patterns, f, indent=2, default=str)
-    return patterns_file
+
+    # Save proposals
+    proposals_file = None
+    if proposals:
+        proposals_file = os.path.join(IMPROVEMENTS_DIR, f"{timestamp}_proposals.json")
+        with open(proposals_file, "w") as f:
+            json.dump(proposals, f, indent=2, default=str)
+
+    return patterns_file, proposals_file
 
 
-def format_markdown(all_patterns, observations):
+def format_markdown(all_patterns, proposals, observations):
     """Format results as markdown."""
     lines = []
     lines.append(f"## Pattern Analysis ({len(observations)} sessions)")
@@ -267,6 +328,14 @@ def format_markdown(all_patterns, observations):
             if k != "type":
                 lines.append(f"- **{k}**: {v}")
         lines.append("")
+
+    if proposals:
+        lines.append("## Improvement Proposals")
+        lines.append("")
+        for i, prop in enumerate(proposals, 1):
+            lines.append(f"### {i}. [{prop['priority'].upper()}] {prop['action']}")
+            lines.append(f"{prop['proposal']}")
+            lines.append("")
 
     return "\n".join(lines)
 
@@ -288,14 +357,17 @@ def main():
     all_patterns.extend(detect_score_trends(observations))
     all_patterns.extend(detect_skill_gaps(observations))
 
-    patterns_file = save_patterns(all_patterns)
+    proposals = generate_improvement_proposals(all_patterns)
+    patterns_file, proposals_file = save_patterns(all_patterns, proposals)
 
     if output_json:
-        print(json.dumps({"patterns": all_patterns}, indent=2, default=str))
+        print(json.dumps({"patterns": all_patterns, "proposals": proposals}, indent=2, default=str))
     else:
-        print(format_markdown(all_patterns, observations))
+        print(format_markdown(all_patterns, proposals, observations))
 
     print(f"\nPatterns saved: {patterns_file}", file=sys.stderr)
+    if proposals_file:
+        print(f"Proposals saved: {proposals_file}", file=sys.stderr)
 
 
 if __name__ == "__main__":

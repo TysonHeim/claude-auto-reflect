@@ -26,11 +26,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from auto_reflect.config import (
-    OBSERVATIONS_DIR, PATTERNS_DIR, IMPROVEMENTS_DIR, HISTORY_FILE, ensure_dirs,
+    OBSERVATIONS_DIR,
+    PATTERNS_DIR,
+    IMPROVEMENTS_DIR,
+    PROPOSAL_HISTORY,
+    REJECTION_SUPPRESS_DAYS,
+    ensure_dirs,
 )
-
-# Suppression window: rejected proposals won't resurface for this many days
-REJECTION_SUPPRESS_DAYS = 30
 
 
 def load_latest_patterns():
@@ -78,12 +80,12 @@ def load_existing_proposals():
 
 def load_rejection_cache():
     """Load fingerprints of rejected proposals with their rejection dates."""
-    if not os.path.exists(HISTORY_FILE):
+    if not os.path.exists(PROPOSAL_HISTORY):
         return {}
 
     cache = {}
     try:
-        with open(HISTORY_FILE) as f:
+        with open(PROPOSAL_HISTORY) as f:
             history = json.load(f)
     except (json.JSONDecodeError, IOError):
         return {}
@@ -93,13 +95,16 @@ def load_rejection_cache():
     for entry in history:
         if entry.get("action") != "rejected":
             continue
+        # Extract fingerprint from summary
         fp = entry.get("summary", "").lower().strip()[:100]
+        # Check if rejection is still within suppression window
         date_str = entry.get("date", "")
         try:
             rejection_date = datetime.fromisoformat(date_str)
             if rejection_date > cutoff:
                 cache[fp] = rejection_date.isoformat()
         except (ValueError, TypeError):
+            # If we can't parse date, suppress anyway (conservative)
             cache[fp] = "unknown"
 
     return cache
@@ -108,6 +113,7 @@ def load_rejection_cache():
 def is_rejected(proposal, rejection_cache):
     """Check if a proposal matches a previously rejected fingerprint."""
     content = proposal.get("content", {})
+    # Build multiple fingerprint variants to catch near-matches
     candidates = [
         content.get("body", ""),
         content.get("issue", ""),
@@ -158,7 +164,13 @@ def similarity(text1, text2):
 
 
 def cluster_corrections(observations):
-    """Group similar corrections across sessions into clusters."""
+    """Group similar corrections across sessions into clusters.
+
+    Returns clusters sorted by size (largest first), each with:
+    - representative text
+    - count of similar corrections
+    - session IDs where they occurred
+    """
     corrections = []
     for obs in observations:
         for c in obs.get("corrections", []):
@@ -171,6 +183,7 @@ def cluster_corrections(observations):
     if not corrections:
         return []
 
+    # Simple greedy clustering: assign each correction to first matching cluster
     clusters = []
     SIMILARITY_THRESHOLD = 0.35
 
@@ -189,15 +202,27 @@ def cluster_corrections(observations):
                 "sessions": {c["session_id"]},
             })
 
+    # Sort by cluster size, filter singletons
     clusters = [c for c in clusters if len(c["items"]) >= 2]
     clusters.sort(key=lambda c: len(c["items"]), reverse=True)
+
     return clusters
 
 
 # --- Error Message Analysis ---
 
+def strip_exit_prefix(msg):
+    """Remove 'Exit code N\\n' prefix from Bash errors."""
+    return re.sub(r'^Exit code \d+\n?', '', msg, count=1).strip()
+
+
 def analyze_error_messages(observations):
-    """Analyze actual error messages to find specific, actionable patterns."""
+    """Analyze actual error messages to find specific, actionable patterns.
+
+    Instead of "Edit fails 36% of the time", produces:
+    "Edit fails with 'old_string not found' in 80% of Edit errors -- read file first"
+    """
+    # Collect error messages by tool
     tool_errors = defaultdict(list)
     for obs in observations:
         for tool, messages in obs.get("error_messages", {}).items():
@@ -208,7 +233,10 @@ def analyze_error_messages(observations):
     for tool, messages in tool_errors.items():
         if len(messages) < 3:
             continue
+
+        # Categorize error messages by pattern
         categories = categorize_errors(tool, messages)
+
         for category, info in categories.items():
             if info["count"] >= 3:
                 pct = info["count"] / len(messages) * 100
@@ -228,11 +256,12 @@ def analyze_error_messages(observations):
 
 
 def categorize_errors(tool, messages):
-    """Categorize error messages for a specific tool into actionable buckets."""
-    categories = defaultdict(lambda: {"count": 0, "description": "", "fix": "", "samples": []})
+    """Categorize error messages for a specific tool into actionable buckets.
 
-    def strip_exit_prefix(msg):
-        return re.sub(r'^Exit code \d+\n?', '', msg, count=1).strip()
+    Bash errors typically start with 'Exit code N\\n' followed by the actual message.
+    We strip the exit code prefix to match against the real content.
+    """
+    categories = defaultdict(lambda: {"count": 0, "description": "", "fix": "", "samples": []})
 
     patterns = {
         "Edit": [
@@ -264,7 +293,7 @@ def categorize_errors(tool, messages):
              "Check for conflicts before merging; resolve or abort"),
             (r"login failed|could not (find|resolve) (user|identity)|sqlcmd.*error.*login", "auth-failure",
              "Authentication or identity resolution failed",
-             "Verify credentials and identity"),
+             "Verify credentials and identity; check for current tokens"),
             (r"already (used|exists|checked out)", "resource-conflict",
              "Resource already in use (branch, worktree, port)",
              "Check for existing resources before creating; clean up stale ones"),
@@ -340,9 +369,11 @@ def categorize_errors(tool, messages):
     tool_patterns = patterns.get(tool, [])
 
     for msg in messages:
+        # Strip exit code prefix for better pattern matching
         clean_msg = strip_exit_prefix(msg) if tool == "Bash" else msg
         msg_lower = clean_msg.lower()
 
+        # Skip empty/minimal errors (bare "Exit code 1" with no message)
         if not msg_lower or len(msg_lower) < 3:
             continue
 
@@ -366,22 +397,17 @@ def categorize_errors(tool, messages):
     return dict(categories)
 
 
-# Error categories that are expected/non-actionable
-NON_ACTIONABLE_CATEGORIES = {
-    "permission-blocked", "cancelled-parallel", "user-rejected",
-    "nonzero-exit", "other",
-}
-
-
 # --- Proposal Generation ---
 
 def generate_correction_proposals(clusters):
     """Generate proposals from correction clusters."""
     proposals = []
-    for cluster in clusters[:5]:
+    for cluster in clusters[:5]:  # Top 5 clusters
         count = len(cluster["items"])
         sessions = len(cluster["sessions"])
         representative = cluster["representative"]
+
+        # Extract the core instruction from the correction
         summary = representative[:200]
 
         proposals.append({
@@ -399,17 +425,27 @@ def generate_correction_proposals(clusters):
             "source": "auto-reflect",
             "created": datetime.now().isoformat(),
         })
+
     return proposals
+
+
+# Error categories that are expected/non-actionable -- don't propose fixes
+NON_ACTIONABLE_CATEGORIES = {
+    "permission-blocked", "cancelled-parallel", "user-rejected",
+    "nonzero-exit",  # Too generic
+}
 
 
 def generate_error_proposals(error_findings):
     """Generate proposals from error message analysis."""
     proposals = []
-    for finding in error_findings[:5]:
+    for finding in error_findings[:5]:  # Top 5 error patterns
         if finding["percentage"] < 10:
-            continue
+            continue  # Skip rare error categories
         if finding["category"] in NON_ACTIONABLE_CATEGORIES:
-            continue
+            continue  # Skip expected/non-actionable errors
+        if finding["category"] == "other":
+            continue  # Skip uncategorized -- need more specific patterns first
 
         proposals.append({
             "type": "feedback_memory",
@@ -426,13 +462,18 @@ def generate_error_proposals(error_findings):
             "source": "auto-reflect",
             "created": datetime.now().isoformat(),
         })
+
     return proposals
 
 
 def generate_pattern_proposals(patterns):
-    """Generate proposals from detected patterns -- only actionable ones."""
+    """Generate proposals from detected patterns -- only for score declines and corrections."""
     proposals = []
     for p in patterns:
+        # Only generate proposals for patterns that are genuinely actionable
+        # Skip: frequent_tool_errors, frequent_retries, low_skill_usage
+        # (these are now handled by error message analysis and correction clustering)
+
         if p["type"] == "score_decline":
             proposals.append({
                 "type": "investigation",
@@ -441,13 +482,16 @@ def generate_pattern_proposals(patterns):
                 "content": {
                     "target": "Session quality trend",
                     "issue": f"Score declining: recent avg {p.get('recent_avg', 0)} vs earlier {p.get('earlier_avg', 0)} (delta: {p.get('delta', 0)})",
-                    "suggestion": "Review recent low-scoring sessions for systemic issues.",
+                    "suggestion": "Review recent low-scoring sessions for systemic issues. Run deep_analyze on sessions scoring <80.",
                     "priority": "high",
                 },
                 "source": "auto-reflect",
                 "created": datetime.now().isoformat(),
             })
+
         elif p["type"] == "recurring_corrections" and p.get("sample_corrections"):
+            # This is now mostly handled by correction clustering,
+            # but include a summary if themes are interesting
             themes = p.get("top_themes", [])
             if themes:
                 proposals.append({
@@ -457,13 +501,14 @@ def generate_pattern_proposals(patterns):
                     "content": {
                         "target": "Recurring correction themes",
                         "issue": f"Corrections cluster around themes: {', '.join(themes)}",
-                        "suggestion": "Review correction clusters in detail.",
+                        "suggestion": "Review correction clusters in detail. Consider adding feedback memories for the top themes.",
                         "priority": "medium",
                         "samples": p.get("sample_corrections", [])[:3],
                     },
                     "source": "auto-reflect",
                     "created": datetime.now().isoformat(),
                 })
+
     return proposals
 
 
@@ -533,6 +578,7 @@ def format_markdown(proposals):
         for i, p in enumerate(items, 1):
             content = p["content"]
             priority = content.get("priority", "medium")
+            summary = p.get("_summary", "")
 
             if ptype == "feedback_memory":
                 lines.append(f"**{i}. [{priority.upper()}]** {content.get('description', '')}")
@@ -543,7 +589,7 @@ def format_markdown(proposals):
                 lines.append(f"   Issue: {content.get('issue', '')}")
                 lines.append(f"   Action: {content.get('suggestion', '')}")
             else:
-                lines.append(f"**{i}.** {p.get('_summary', content.get('description', ''))}")
+                lines.append(f"**{i}.** {summary or content.get('description', '')}")
 
             lines.append("")
 

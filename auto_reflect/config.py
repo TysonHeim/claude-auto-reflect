@@ -29,8 +29,12 @@ DEEP_ANALYSIS_DIR = os.path.join(AUTO_REFLECT_DIR, "deep-analysis")
 
 # Log files
 GATE_LOG = os.path.join(AUTO_REFLECT_DIR, "gate-log.json")
-HISTORY_FILE = os.path.join(AUTO_REFLECT_DIR, "proposal-history.json")
+PROPOSAL_HISTORY = os.path.join(AUTO_REFLECT_DIR, "proposal-history.json")
+HISTORY_FILE = PROPOSAL_HISTORY  # Alias for backward compatibility
 HOOK_LOG = os.path.join(AUTO_REFLECT_DIR, "hook-log.txt")
+
+# Deep analysis
+DEEP_ANALYSIS_DIR = os.path.join(AUTO_REFLECT_DIR, "deep-analysis")
 
 # Eval gate paths (optional — only needed if you have skills with evals)
 SKILLS_DIR = os.environ.get(
@@ -49,6 +53,13 @@ EVAL_TOOLS_DIR = os.environ.get(
 # Configurable thresholds
 EXPIRE_DAYS = int(os.environ.get("AUTO_REFLECT_EXPIRE_DAYS", "7"))
 PATTERN_MIN_OBSERVATIONS = int(os.environ.get("AUTO_REFLECT_MIN_OBS_FOR_PATTERNS", "20"))
+
+
+# Rejection cache suppression window (days)
+REJECTION_SUPPRESS_DAYS = int(os.environ.get("AUTO_REFLECT_REJECTION_DAYS", "30"))
+
+# Deep analysis score threshold
+DEFAULT_ANALYSIS_THRESHOLD = int(os.environ.get("AUTO_REFLECT_ANALYSIS_THRESHOLD", "85"))
 
 
 def ensure_dirs():

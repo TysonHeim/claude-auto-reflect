@@ -221,6 +221,46 @@ def detect_skills_used(tool_pairs):
     return skills
 
 
+# Bash anti-patterns: commands that should use dedicated tools instead
+_TOOL_MISUSE_PATTERNS = [
+    # grep/rg -> Grep tool
+    (r"(?:^|\||\&\&|\;)\s*(?:grep|rg|egrep|fgrep)\s", "grep/rg", "Grep"),
+    # cat/head/tail -> Read tool
+    (r"(?:^|\||\&\&|\;)\s*(?:cat|head|tail)\s", "cat/head/tail", "Read"),
+    # sed/awk for editing -> Edit tool
+    (r"(?:^|\||\&\&|\;)\s*(?:sed|awk)\s.*-i", "sed -i/awk", "Edit"),
+    # find/ls for file search -> Glob tool
+    (r"(?:^|\||\&\&|\;)\s*find\s", "find", "Glob"),
+    # echo/cat heredoc for writing -> Write tool
+    (r"(?:echo|cat\s*<<)\s.*>(?!>)\s*\S", "echo/cat>file", "Write"),
+]
+
+
+def detect_tool_misuse(tool_pairs):
+    """Detect Bash calls that should have used a dedicated tool.
+
+    Returns a list of dicts with the tool call index, the command snippet,
+    the anti-pattern matched, and the tool that should have been used.
+    """
+    misuses = []
+    for i, tp in enumerate(tool_pairs):
+        if tp["name"] != "Bash":
+            continue
+        command = tp["input"].get("command", "")
+        if not command:
+            continue
+        for pattern, label, preferred in _TOOL_MISUSE_PATTERNS:
+            if re.search(pattern, command):
+                misuses.append({
+                    "index": i,
+                    "command": command[:200],
+                    "anti_pattern": label,
+                    "preferred_tool": preferred,
+                })
+                break  # one match per Bash call is enough
+    return misuses
+
+
 def compute_score(metrics):
     """Compute a 0-100 performance score.
 
@@ -243,6 +283,11 @@ def compute_score(metrics):
     retry_rate = metrics["retry_count"] / max(tool_count, 1)
     score -= min(retry_rate * 80, 20)  # Up to -20 for high retry rate
 
+    # Penalize tool misuse — using Bash for tasks with dedicated tools
+    # -5 per misuse, max -25. This catches "wrong thing done successfully".
+    misuse_count = metrics.get("tool_misuse_count", 0)
+    score -= min(misuse_count * 5, 25)  # Up to -25 for tool misuse
+
     return max(0, min(100, round(score)))
 
 
@@ -254,7 +299,9 @@ def analyze(path):
     corrections = detect_corrections(messages)
     retries = detect_retries(tool_pairs)
     skills = detect_skills_used(tool_pairs)
+    tool_misuses = detect_tool_misuse(tool_pairs)
 
+    # Tool distribution
     tool_counts = Counter(tp["name"] for tp in tool_pairs)
     error_tools = Counter(tp["name"] for tp in tool_pairs if tp["is_error"])
 
@@ -272,13 +319,16 @@ def analyze(path):
             if msg:
                 error_messages[tp["name"]].append(msg)
 
+    # Message counts
     user_msgs = [m for m in messages if m["role"] == "user"]
     assistant_msgs = [m for m in messages if m["role"] == "assistant"]
 
+    # Timestamps
     timestamps = [e.get("timestamp") for e in entries if e.get("timestamp")]
     start_time = min(timestamps) if timestamps else None
     end_time = max(timestamps) if timestamps else None
 
+    # Find session ID from first entry that has one
     session_id = "unknown"
     for e in entries:
         sid = e.get("sessionId")
@@ -299,12 +349,14 @@ def analyze(path):
         "error_count": sum(1 for tp in tool_pairs if tp["is_error"]),
         "correction_count": len(corrections),
         "retry_count": len(retries),
+        "tool_misuse_count": len(tool_misuses),
         "skills_used": skills,
         "tool_distribution": dict(tool_counts.most_common()),
         "error_distribution": dict(error_tools.most_common()),
         "corrections": [c["text"] for c in corrections],
         "error_messages": {k: v[:5] for k, v in error_messages.items()},  # top 5 per tool
         "retries": retries,
+        "tool_misuses": tool_misuses,
     }
     metrics["score"] = compute_score(metrics)
 
@@ -351,6 +403,7 @@ def format_markdown(metrics):
     lines.append(f"| Errors | {metrics['error_count']} |")
     lines.append(f"| Corrections | {metrics['correction_count']} |")
     lines.append(f"| Retries | {metrics['retry_count']} |")
+    lines.append(f"| Tool misuses | {metrics.get('tool_misuse_count', 0)} |")
     lines.append(f"| Skills used | {', '.join(metrics['skills_used']) or 'none'} |")
     lines.append("")
 
@@ -372,6 +425,12 @@ def format_markdown(metrics):
         lines.append("### Retries Detected")
         for r in metrics["retries"]:
             lines.append(f"- {r['tool']} (error at call #{r['error_index']}, retry at #{r['retry_index']})")
+        lines.append("")
+
+    if metrics.get("tool_misuses"):
+        lines.append("### Tool Misuses")
+        for m in metrics["tool_misuses"]:
+            lines.append(f"- Bash `{m['anti_pattern']}` should use **{m['preferred_tool']}**: `{m['command'][:100]}`")
         lines.append("")
 
     return "\n".join(lines)

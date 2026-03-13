@@ -6,11 +6,11 @@ Instead of just counting errors, this reads the actual transcript and asks
 Claude to identify root causes, wasted effort, and specific improvements.
 
 Usage:
-    python3 -m auto_reflect.deep_analyze                    # analyze lowest-scoring recent session
-    python3 -m auto_reflect.deep_analyze --threshold 80     # analyze all sessions scoring below 80
-    python3 -m auto_reflect.deep_analyze --session <id>     # analyze a specific session
-    python3 -m auto_reflect.deep_analyze --batch 5          # analyze 5 lowest recent sessions
-    python3 -m auto_reflect.deep_analyze --json             # raw JSON output
+    python3 -m auto_reflect.deep_analyze
+    python3 -m auto_reflect.deep_analyze --threshold 80
+    python3 -m auto_reflect.deep_analyze --session <id>
+    python3 -m auto_reflect.deep_analyze --batch 5
+    python3 -m auto_reflect.deep_analyze --json
 """
 
 import json
@@ -20,10 +20,13 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from auto_reflect.config import OBSERVATIONS_DIR, DEEP_ANALYSIS_DIR, IMPROVEMENTS_DIR, ensure_dirs
-
-# Only analyze sessions below this score
-DEFAULT_THRESHOLD = 85
+from auto_reflect.config import (
+    OBSERVATIONS_DIR,
+    DEEP_ANALYSIS_DIR,
+    IMPROVEMENTS_DIR,
+    DEFAULT_ANALYSIS_THRESHOLD,
+    ensure_dirs,
+)
 
 ANALYSIS_PROMPT = """You are analyzing a Claude Code session transcript to identify why it scored poorly.
 
@@ -188,6 +191,7 @@ def condense_tool_input(tool_name, inp):
         atype = inp.get("subagent_type", "")
         return f"{atype}: {desc}" if atype else desc
     else:
+        # Generic: show first few key-value pairs
         items = list(inp.items())[:3]
         return ", ".join(f"{k}={str(v)[:50]}" for k, v in items)
 
@@ -198,12 +202,14 @@ def run_claude_analysis(prompt):
     NOTE: This cannot run inside a Claude Code session (nested sessions crash).
     Run from a regular terminal, the SessionEnd hook, or a cron job.
     """
+    # Check for nested session
     if os.environ.get("CLAUDE_CODE_SESSION") or os.environ.get("CLAUDECODE"):
         print("Cannot run deep analysis inside Claude Code (nested session).", file=sys.stderr)
-        print("Run from a regular terminal instead.", file=sys.stderr)
+        print("Run from a regular terminal: python3 -m auto_reflect.deep_analyze", file=sys.stderr)
         return None
 
     try:
+        # Unset CLAUDECODE env vars to avoid nested session detection
         env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
         result = subprocess.run(
             ["claude", "-p", "--output-format", "json", prompt],
@@ -213,17 +219,20 @@ def run_claude_analysis(prompt):
             print(f"Claude CLI error: {result.stderr[:200]}", file=sys.stderr)
             return None
 
+        # Parse the CLI JSON output to get the response text
         try:
             cli_output = json.loads(result.stdout)
             response_text = cli_output.get("result", result.stdout)
         except json.JSONDecodeError:
             response_text = result.stdout
 
+        # Extract JSON from the response (may have markdown wrapping)
         response_text = response_text.strip()
         if response_text.startswith("```"):
-            lines = response_text.split("\n")
-            lines = [l for l in lines if not l.strip().startswith("```")]
-            response_text = "\n".join(lines)
+            # Strip markdown code fences
+            resp_lines = response_text.split("\n")
+            resp_lines = [l for l in resp_lines if not l.strip().startswith("```")]
+            response_text = "\n".join(resp_lines)
 
         return json.loads(response_text)
 
@@ -263,6 +272,7 @@ def analyze_session(obs):
     if not analysis:
         return None
 
+    # Enrich with session metadata
     analysis["session_id"] = session_id
     analysis["session_score"] = obs.get("score", 0)
     analysis["analyzed_at"] = datetime.now().isoformat()
@@ -312,6 +322,7 @@ def format_analysis(analysis):
     lines = []
     lines.append(f"### Session {analysis.get('session_id', '?')[:8]} (Score: {analysis.get('session_score', '?')})")
     lines.append("")
+
     lines.append(f"**Summary:** {analysis.get('summary', 'N/A')}")
     lines.append("")
 
@@ -351,7 +362,8 @@ def main():
 
     ensure_dirs()
 
-    threshold = DEFAULT_THRESHOLD
+    # Parse arguments
+    threshold = DEFAULT_ANALYSIS_THRESHOLD
     target_session = None
     batch_size = 1
 
@@ -374,15 +386,18 @@ def main():
         print("No observations found.", file=sys.stderr)
         sys.exit(1)
 
+    # Select sessions to analyze
     if target_session:
         candidates = [o for o in observations if o.get("session_id", "").startswith(target_session)]
     else:
+        # Find low-scoring sessions that haven't been deep-analyzed yet
         candidates = [
             o for o in observations
             if o.get("score", 100) < threshold
             and not already_analyzed(o.get("session_id", "unknown"))
-            and o.get("tool_call_count", 0) >= 5
+            and o.get("tool_call_count", 0) >= 5  # Skip trivial sessions
         ]
+        # Sort by score ascending (worst first)
         candidates.sort(key=lambda o: o.get("score", 100))
 
     if not candidates:
@@ -405,7 +420,9 @@ def main():
             all_analyses.append(analysis)
             all_proposals.extend(analysis_to_proposals(analysis))
 
+    # Save proposals if any
     if all_proposals:
+        ensure_dirs()
         timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
         proposals_path = os.path.join(IMPROVEMENTS_DIR, f"{timestamp}_deep_proposals.json")
         with open(proposals_path, "w") as f:
@@ -428,7 +445,7 @@ def main():
             print(format_analysis(a))
 
         if all_proposals:
-            print(f"\n{len(all_proposals)} improvement proposals generated. Run /auto-reflect to review.")
+            print(f"\n{len(all_proposals)} improvement proposals generated.")
 
 
 if __name__ == "__main__":
