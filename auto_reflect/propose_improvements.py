@@ -6,6 +6,8 @@ Takes pattern analysis + observation data and produces actionable changes:
 - Feedback memories (from clustered corrections)
 - Skill patches (from specific error analysis)
 - Investigations (from score declines)
+- Agent patches (from agent error rates, unused agents)
+- CLAUDE.md patches (from recurring corrections, rule violations)
 
 Key features:
 - Rejection cache: won't re-propose things you already rejected
@@ -31,6 +33,7 @@ from auto_reflect.config import (
     IMPROVEMENTS_DIR,
     PROPOSAL_HISTORY,
     REJECTION_SUPPRESS_DAYS,
+    CLAUDE_DIR,
     ensure_dirs,
 )
 
@@ -512,6 +515,201 @@ def generate_pattern_proposals(patterns):
     return proposals
 
 
+def generate_agent_proposals(observations):
+    """Generate proposals for agent definition improvements.
+
+    Analyzes Agent tool usage across sessions to find:
+    - Agents with high error rates (bad instructions or misconfigured)
+    - Available agents that are never used (dead weight or poor discoverability)
+    - Agents that consistently trigger corrections after use (bad output quality)
+    """
+    agents_dir = os.path.join(CLAUDE_DIR, "agents")
+
+    # Collect agent usage stats
+    agent_stats = defaultdict(lambda: {"total": 0, "errors": 0, "sessions": set(),
+                                        "error_messages": [], "descriptions": []})
+
+    for obs in observations:
+        for agent in obs.get("agents_used", []):
+            agent_type = agent.get("subagent_type", "general-purpose")
+            stats = agent_stats[agent_type]
+            stats["total"] += 1
+            stats["sessions"].add(obs.get("session_id", ""))
+            stats["descriptions"].append(agent.get("description", ""))
+            if agent.get("is_error"):
+                stats["errors"] += 1
+                if agent.get("error_message"):
+                    stats["error_messages"].append(agent["error_message"][:150])
+
+    proposals = []
+
+    # 1. Agents with high error rates (>30%, min 3 uses)
+    for agent_type, stats in agent_stats.items():
+        if stats["total"] < 3:
+            continue
+        error_rate = stats["errors"] / stats["total"]
+        if error_rate > 0.30:
+            samples = stats["error_messages"][:3]
+            proposals.append({
+                "type": "agent_patch",
+                "status": "pending_review",
+                "_summary": f"agent {agent_type}: {error_rate:.0%} error rate ({stats['errors']}/{stats['total']})",
+                "content": {
+                    "target": f"agents/{agent_type}.md",
+                    "description": f"Agent '{agent_type}' has a {error_rate:.0%} error rate ({stats['errors']}/{stats['total']} calls across {len(stats['sessions'])} sessions)",
+                    "issue": f"High failure rate suggests the agent definition needs better instructions, tool access, or scoping",
+                    "evidence": f"{stats['errors']} errors in {stats['total']} calls. Sample errors: {'; '.join(samples[:2])}",
+                    "priority": "high" if error_rate > 0.5 else "medium",
+                },
+                "source": "auto-reflect",
+                "created": datetime.now().isoformat(),
+            })
+
+    # 2. Detect available agents that are never used
+    if os.path.isdir(agents_dir):
+        available = set()
+        for f in os.listdir(agents_dir):
+            if f.endswith(".md"):
+                available.add(f.replace(".md", ""))
+        used = set(agent_stats.keys())
+        # Only flag after enough data (50+ sessions with agent tracking)
+        sessions_with_agent_data = sum(
+            1 for obs in observations if "agents_used" in obs
+        )
+        if sessions_with_agent_data >= 50:
+            never_used = available - used
+            for agent_name in sorted(never_used):
+                proposals.append({
+                    "type": "agent_patch",
+                    "status": "pending_review",
+                    "_summary": f"agent {agent_name}: never used in {sessions_with_agent_data} sessions",
+                    "content": {
+                        "target": f"agents/{agent_name}.md",
+                        "description": f"Agent '{agent_name}' has never been used across {sessions_with_agent_data} tracked sessions",
+                        "issue": "Agent may have poor discoverability, unclear trigger conditions, or be obsolete",
+                        "suggestion": "Review if this agent is still needed. If yes, improve its description. If no, remove it.",
+                        "priority": "low",
+                    },
+                    "source": "auto-reflect",
+                    "created": datetime.now().isoformat(),
+                })
+
+    return proposals
+
+
+def generate_claude_md_proposals(observations, correction_clusters):
+    """Generate proposals for CLAUDE.md improvements.
+
+    Promotes high-frequency correction clusters to CLAUDE.md Corrections rules
+    when they're persistent enough to warrant a permanent instruction.
+    Also detects existing CLAUDE.md rules that aren't being followed.
+
+    Threshold: 3+ sessions with the same correction pattern -> propose CLAUDE.md rule.
+    (Feedback memories are for 2+ sessions; CLAUDE.md is the stronger, permanent fix.)
+    """
+    claude_md = os.path.join(CLAUDE_DIR, "CLAUDE.md")
+
+    # Load existing CLAUDE.md corrections to avoid duplicating
+    existing_rules = set()
+    if os.path.exists(claude_md):
+        try:
+            with open(claude_md) as f:
+                content = f.read().lower()
+                # Extract bullet points from Corrections section
+                in_corrections = False
+                for line in content.split("\n"):
+                    if "## corrections" in line:
+                        in_corrections = True
+                        continue
+                    if in_corrections and line.startswith("##"):
+                        break
+                    if in_corrections and line.strip().startswith("- "):
+                        # Store first 80 chars as fingerprint
+                        existing_rules.add(line.strip()[:80])
+        except IOError:
+            pass
+
+    proposals = []
+
+    # 1. Promote high-frequency correction clusters to CLAUDE.md rules
+    for cluster in correction_clusters:
+        session_count = len(cluster["sessions"])
+        item_count = len(cluster["items"])
+
+        # Must appear in 3+ sessions to warrant a permanent rule
+        if session_count < 3:
+            continue
+
+        representative = cluster["representative"]
+
+        # Check if this correction is already covered by an existing CLAUDE.md rule
+        rep_lower = representative.lower()
+        already_covered = any(
+            similarity_check(rep_lower, rule)
+            for rule in existing_rules
+        )
+        if already_covered:
+            continue
+
+        # Convert the correction into a "Don't X, instead Y" format suggestion
+        proposals.append({
+            "type": "claude_md_patch",
+            "status": "pending_review",
+            "_summary": f"CLAUDE.md rule: {representative[:60]}",
+            "content": {
+                "target": "CLAUDE.md",
+                "section": "Corrections",
+                "description": f"Recurring correction ({item_count}x across {session_count} sessions) should become a permanent CLAUDE.md rule",
+                "correction_text": representative[:300],
+                "suggested_rule": f"- Don't ... (derived from: \"{representative[:150]}\")",
+                "evidence": f"{item_count} occurrences across {session_count} sessions",
+                "priority": "high" if session_count >= 5 else "medium",
+            },
+            "source": "auto-reflect",
+            "created": datetime.now().isoformat(),
+        })
+
+    # 2. Detect corrections that match existing CLAUDE.md rules (rules not working)
+    rule_violations = defaultdict(int)
+    for obs in observations[-100:]:  # Check last 100 sessions
+        for correction_text in obs.get("corrections", []):
+            corr_lower = correction_text.lower()
+            for rule in existing_rules:
+                if similarity_check(corr_lower, rule):
+                    rule_violations[rule] += 1
+
+    for rule, count in rule_violations.items():
+        if count >= 3:
+            proposals.append({
+                "type": "claude_md_patch",
+                "status": "pending_review",
+                "_summary": f"CLAUDE.md rule not followed: {rule[:60]}",
+                "content": {
+                    "target": "CLAUDE.md",
+                    "section": "Corrections",
+                    "description": f"Existing CLAUDE.md rule is being violated repeatedly ({count}x in last 100 sessions)",
+                    "rule": rule,
+                    "issue": "Rule exists but Claude keeps breaking it. Consider rewording for clarity, adding an example, or making it more prominent.",
+                    "evidence": f"{count} violations in last 100 sessions",
+                    "priority": "high",
+                },
+                "source": "auto-reflect",
+                "created": datetime.now().isoformat(),
+            })
+
+    return proposals
+
+
+def similarity_check(text1, text2):
+    """Quick word overlap check for matching corrections to rules."""
+    words1 = word_set(text1)
+    words2 = word_set(text2)
+    if not words1 or not words2:
+        return False
+    overlap = len(words1 & words2) / min(len(words1), len(words2))
+    return overlap >= 0.4
+
+
 def deduplicate_proposals(new_proposals, existing_proposals):
     """Remove proposals that are too similar to existing ones."""
     existing_fingerprints = set()
@@ -588,6 +786,23 @@ def format_markdown(proposals):
                 lines.append(f"**{i}. [{priority.upper()}]** {content.get('target', '')}")
                 lines.append(f"   Issue: {content.get('issue', '')}")
                 lines.append(f"   Action: {content.get('suggestion', '')}")
+            elif ptype == "agent_patch":
+                lines.append(f"**{i}. [{priority.upper()}]** {content.get('description', '')}")
+                lines.append(f"   Target: {content.get('target', '')}")
+                lines.append(f"   Issue: {content.get('issue', '')}")
+                lines.append(f"   Evidence: {content.get('evidence', '')}")
+            elif ptype == "claude_md_patch":
+                lines.append(f"**{i}. [{priority.upper()}]** {content.get('description', '')}")
+                lines.append(f"   Section: {content.get('section', '')}")
+                if content.get('correction_text'):
+                    lines.append(f"   Correction: \"{content['correction_text'][:150]}\"")
+                if content.get('suggested_rule'):
+                    lines.append(f"   Suggested: {content['suggested_rule']}")
+                if content.get('rule'):
+                    lines.append(f"   Rule: {content['rule']}")
+                if content.get('issue'):
+                    lines.append(f"   Issue: {content['issue']}")
+                lines.append(f"   Evidence: {content.get('evidence', '')}")
             else:
                 lines.append(f"**{i}.** {summary or content.get('description', '')}")
 
@@ -618,7 +833,13 @@ def main():
     # 3. Generate proposals from high-level patterns (only actionable ones)
     new_proposals.extend(generate_pattern_proposals(patterns))
 
-    # 4. Deduplicate against existing proposals
+    # 4. Generate agent improvement proposals
+    new_proposals.extend(generate_agent_proposals(observations))
+
+    # 5. Generate CLAUDE.md improvement proposals
+    new_proposals.extend(generate_claude_md_proposals(observations, clusters))
+
+    # 6. Deduplicate against existing proposals
     new_proposals = deduplicate_proposals(new_proposals, existing)
 
     # 5. Filter out previously rejected proposals

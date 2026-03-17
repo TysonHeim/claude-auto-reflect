@@ -221,6 +221,37 @@ def detect_skills_used(tool_pairs):
     return skills
 
 
+def detect_agents_used(tool_pairs):
+    """Extract agent usage details from Agent tool calls.
+
+    Returns a list of dicts with agent type, description, and whether it errored.
+    """
+    agents = []
+    for tp in tool_pairs:
+        if tp["name"] == "Agent":
+            agents.append({
+                "subagent_type": tp["input"].get("subagent_type", "general-purpose"),
+                "description": tp["input"].get("description", ""),
+                "is_error": tp["is_error"],
+                "error_message": _extract_result_text(tp) if tp["is_error"] else "",
+            })
+    return agents
+
+
+def _extract_result_text(tool_pair):
+    """Extract text from a tool result content field."""
+    content = tool_pair.get("result_content", "")
+    if isinstance(content, list):
+        parts = []
+        for b in content:
+            if isinstance(b, str):
+                parts.append(b)
+            elif isinstance(b, dict) and b.get("type") == "text":
+                parts.append(b.get("text", ""))
+        return " ".join(parts)[:300]
+    return str(content)[:300]
+
+
 # Bash anti-patterns: commands that should use dedicated tools instead
 _TOOL_MISUSE_PATTERNS = [
     # grep/rg -> Grep tool
@@ -299,6 +330,7 @@ def analyze(path):
     corrections = detect_corrections(messages)
     retries = detect_retries(tool_pairs)
     skills = detect_skills_used(tool_pairs)
+    agents = detect_agents_used(tool_pairs)
     tool_misuses = detect_tool_misuse(tool_pairs)
 
     # Tool distribution
@@ -351,6 +383,7 @@ def analyze(path):
         "retry_count": len(retries),
         "tool_misuse_count": len(tool_misuses),
         "skills_used": skills,
+        "agents_used": agents,
         "tool_distribution": dict(tool_counts.most_common()),
         "error_distribution": dict(error_tools.most_common()),
         "corrections": [c["text"] for c in corrections],
