@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=64"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "claude-auto-reflect"
@@ -10,6 +10,9 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.8"
 # Zero external dependencies — stdlib only
+
+[tool.setuptools.packages.find]
+include = ["auto_reflect*"]
 
 [project.scripts]
 auto-reflect = "auto_reflect.orchestrate:main"
