@@ -310,8 +310,6 @@ Removes hooks, slash commands, and cron entries. Data directories are preserved 
 
 **Why rate-based scoring?** Rates normalize for session complexity. Penalizing raw error counts would unfairly punish long, productive sessions.
 
-**Why human-in-the-loop?** Self-improvement without oversight is how you get paperclip maximizers. Every proposal requires explicit approval.
-
 **Why track effectiveness?** Because proposing fixes isn't enough -- you need to know if they worked. Changes that don't improve metrics get flagged for removal.
 
 **Why zero dependencies?** The entire codebase uses Python stdlib only. No `pip install` surprises, no version conflicts, works everywhere Python 3.8+ runs.
