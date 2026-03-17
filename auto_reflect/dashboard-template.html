@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auto-Reflect Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fff5f9;
+    --surface: #ffffff;
+    --surface2: #fff0f5;
+    --border: #fce4ec;
+    --text: #3d1a33;
+    --text-muted: #a06080;
+    --pink: #f472b6;
+    --pink-soft: #fbb6d0;
+    --pink-dim: rgba(244,114,182,0.1);
+    --blue: #60a5fa;
+    --blue-dim: rgba(96,165,250,0.12);
+    --mint: #6ee7b7;
+    --mint-dim: rgba(110,231,183,0.12);
+    --peach: #fdba74;
+    --peach-dim: rgba(253,186,116,0.12);
+    --rose: #fda4af;
+    --rose-dim: rgba(253,164,175,0.12);
+    --sky: #7dd3fc;
+    --sky-dim: rgba(125,211,252,0.12);
+    --shadow: 0 2px 16px rgba(244,114,182,0.07);
+    --shadow-lg: 0 8px 32px rgba(244,114,182,0.12);
+    --radius: 20px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Nunito', system-ui, sans-serif;
+    background: var(--bg);
+    background-image:
+      radial-gradient(ellipse at 10% 0%, rgba(96,165,250,0.18) 0%, transparent 50%),
+      radial-gradient(ellipse at 90% 0%, rgba(244,114,182,0.12) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 100%, rgba(110,231,183,0.08) 0%, transparent 40%);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem 1.5rem 3rem;
+    min-height: 100vh;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+
+  /* ── Header ── */
+  .header { text-align: center; margin-bottom: 2rem; }
+  .header h1 {
+    font-size: 2.6rem; font-weight: 900; letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #f472b6, #60a5fa, #7dd3fc);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  }
+  .header .sub { color: var(--text-muted); font-size: 0.95rem; margin-top: 0.2rem; }
+  .divider { width: 50px; height: 4px; background: linear-gradient(90deg,var(--pink),var(--blue)); border-radius: 99px; margin: 0.8rem auto 0; }
+
+  /* ── Stat cards ── */
+  .stats { display: grid; grid-template-columns: repeat(6,1fr); gap: 0.8rem; margin-bottom: 1.5rem; }
+  .stat {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 1rem 0.8rem; text-align: center; box-shadow: var(--shadow);
+    transition: transform 0.15s ease;
+  }
+  .stat:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+  .stat-val { font-size: 1.6rem; font-weight: 900; line-height: 1.1; }
+  .stat-lbl { font-size: 0.65rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.15rem; }
+  .stat:nth-child(1) .stat-val { color: var(--pink); }
+  .stat:nth-child(2) .stat-val { color: #f59e0b; }
+  .stat:nth-child(3) .stat-val { color: #059669; }
+  .stat:nth-child(4) .stat-val { color: #ea580c; }
+  .stat:nth-child(5) .stat-val { color: #0284c7; }
+  .stat:nth-child(6) .stat-val { color: var(--rose); }
+
+  /* ── Cards ── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin-bottom: 1.2rem; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.2rem; margin-bottom: 1.2rem; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 1.3rem; box-shadow: var(--shadow);
+  }
+  .card.full { grid-column: 1 / -1; }
+  .card-title {
+    font-size: 0.82rem; font-weight: 800; margin-bottom: 0.8rem;
+    display: flex; align-items: center; gap: 0.45rem;
+  }
+  .badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 9px; font-size: 0.75rem; font-weight: 800;
+  }
+  .b-pink { background: var(--pink-dim); color: var(--pink); border: 1.5px solid var(--pink-soft); }
+  .b-lav { background: var(--blue-dim); color: #1d4ed8; border: 1.5px solid var(--blue); }
+  .b-mint { background: var(--mint-dim); color: #059669; border: 1.5px solid var(--mint); }
+  .b-peach { background: var(--peach-dim); color: #ea580c; border: 1.5px solid var(--peach); }
+  .b-sky { background: var(--sky-dim); color: #0284c7; border: 1.5px solid var(--sky); }
+  .b-rose { background: var(--rose-dim); color: #e11d48; border: 1.5px solid var(--rose); }
+
+  /* ── Charts ── */
+  .chart-wrap { position: relative; width: 100%; }
+  .chart-wrap svg { display: block; width: 100%; overflow: visible; }
+
+  /* Score trend */
+  .trend-chart { height: 180px; }
+  .trend-line { fill: none; stroke: var(--pink); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+  .trend-area { fill: url(#pinkGrad); opacity: 0.35; }
+  .trend-dot { fill: var(--pink); r: 3.5; transition: r 0.15s; }
+  .trend-dot:hover { r: 6; }
+  .trend-grid { stroke: var(--border); stroke-width: 0.5; }
+  .trend-label { font-size: 9px; fill: var(--text-muted); font-family: 'Nunito', sans-serif; font-weight: 600; }
+
+  /* Histogram */
+  .histo-bar {
+    rx: 6; transition: opacity 0.15s;
+  }
+  .histo-bar:hover { opacity: 0.8; }
+  .histo-label { font-size: 9px; fill: var(--text-muted); font-family: 'Nunito', sans-serif; font-weight: 700; text-anchor: middle; }
+  .histo-count { font-size: 10px; fill: var(--text); font-family: 'Nunito', sans-serif; font-weight: 800; text-anchor: middle; }
+
+  /* Bar charts */
+  .bar-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .bar-name { font-size: 0.72rem; font-weight: 700; width: 100px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-track { flex: 1; height: 12px; background: var(--surface2); border-radius: 99px; overflow: hidden; border: 1px solid var(--border); }
+  .bar-fill { height: 100%; border-radius: 99px; transition: width 0.5s ease; }
+  .bar-val { font-size: 0.7rem; font-weight: 800; width: 42px; text-align: right; flex-shrink: 0; color: var(--text-muted); }
+
+  /* Session table */
+  .session-table { width: 100%; border-collapse: separate; border-spacing: 0 4px; }
+  .session-table th {
+    font-size: 0.65rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase;
+    letter-spacing: 0.05em; padding: 0.3rem 0.6rem; text-align: left;
+  }
+  .session-table td {
+    font-size: 0.78rem; padding: 0.5rem 0.6rem; background: var(--surface2); font-weight: 600;
+  }
+  .session-table tr td:first-child { border-radius: 10px 0 0 10px; }
+  .session-table tr td:last-child { border-radius: 0 10px 10px 0; }
+  .score-pill {
+    display: inline-block; padding: 0.15rem 0.5rem; border-radius: 99px;
+    font-size: 0.72rem; font-weight: 800; min-width: 36px; text-align: center;
+  }
+  .score-pill.great { background: var(--mint-dim); color: #059669; border: 1px solid var(--mint); }
+  .score-pill.good { background: var(--sky-dim); color: #0284c7; border: 1px solid var(--sky); }
+  .score-pill.ok { background: var(--peach-dim); color: #ea580c; border: 1px solid var(--peach); }
+  .score-pill.bad { background: var(--rose-dim); color: #e11d48; border: 1px solid var(--rose); }
+
+  /* Proposals */
+  .proposal {
+    padding: 0.65rem 0.8rem; background: var(--surface2); border-radius: 14px;
+    margin-bottom: 0.5rem; border: 1px solid var(--border); font-size: 0.78rem;
+    display: flex; gap: 0.6rem; align-items: flex-start;
+  }
+  .proposal .pri {
+    font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;
+    padding: 0.12rem 0.45rem; border-radius: 6px; flex-shrink: 0; margin-top: 2px;
+  }
+  .pri-high { background: var(--rose-dim); color: #e11d48; border: 1px solid var(--rose); }
+  .pri-medium { background: var(--peach-dim); color: #ea580c; border: 1px solid var(--peach); }
+  .pri-low { background: var(--sky-dim); color: #0284c7; border: 1px solid var(--sky); }
+  .proposal .type-tag {
+    font-size: 0.6rem; font-weight: 800; text-transform: uppercase; padding: 0.12rem 0.45rem;
+    border-radius: 6px; flex-shrink: 0; margin-top: 2px;
+    background: var(--blue-dim); color: #1d4ed8; border: 1px solid var(--blue);
+  }
+  .proposal .text { color: var(--text-muted); line-height: 1.4; flex: 1; }
+
+  /* Action buttons */
+  .proposal-actions {
+    display: flex; gap: 0.35rem; flex-shrink: 0; margin-left: auto;
+  }
+  .btn {
+    font-family: 'Nunito', sans-serif; font-size: 0.65rem; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 0.25rem 0.6rem; border-radius: 8px; border: 1.5px solid;
+    cursor: pointer; transition: all 0.15s ease;
+  }
+  .btn:active { transform: scale(0.95); }
+  .btn-approve {
+    background: var(--mint-dim); color: #059669; border-color: var(--mint);
+  }
+  .btn-approve:hover { background: rgba(110,231,183,0.25); }
+  .btn-reject {
+    background: var(--rose-dim); color: #e11d48; border-color: var(--rose);
+  }
+  .btn-reject:hover { background: rgba(253,164,175,0.25); }
+  .btn-bulk {
+    font-size: 0.7rem; padding: 0.35rem 0.9rem; border-radius: 10px;
+    margin-top: 0.6rem;
+  }
+  .bulk-bar {
+    display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.8rem;
+    padding-top: 0.6rem; border-top: 1px dashed var(--border);
+  }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .toast {
+    position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+    background: var(--text); color: #fff; font-size: 0.78rem; font-weight: 700;
+    padding: 0.5rem 1.2rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    opacity: 0; transition: opacity 0.3s ease; pointer-events: none; z-index: 100;
+  }
+  .toast.show { opacity: 1; }
+
+  /* History timeline */
+  .timeline { display: flex; flex-direction: column; gap: 0; }
+  .tl-item {
+    display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem;
+    padding: 0.4rem 0.6rem; border-radius: 10px; background: var(--surface2); border: 1px solid var(--border);
+  }
+  .tl-action {
+    font-size: 0.6rem; font-weight: 800; text-transform: uppercase; padding: 0.1rem 0.4rem;
+    border-radius: 5px; flex-shrink: 0; min-width: 58px; text-align: center;
+  }
+  .tl-approved { background: var(--mint-dim); color: #059669; border: 1px solid var(--mint); }
+  .tl-rejected { background: var(--rose-dim); color: #e11d48; border: 1px solid var(--rose); }
+  .tl-date { font-size: 0.65rem; color: var(--text-muted); font-weight: 600; flex-shrink: 0; width: 68px; }
+  .tl-summary { color: var(--text-muted); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tl-item-wrap { display: flex; flex-direction: column; gap: 0; margin-bottom: 0.4rem; }
+  .tl-item-wrap .tl-item { margin-bottom: 0; }
+  .tl-applied {
+    font-size: 0.55rem; font-weight: 800; text-transform: uppercase; padding: 0.08rem 0.35rem;
+    border-radius: 4px; flex-shrink: 0; letter-spacing: 0.04em;
+  }
+  .tl-applied-ok { background: var(--mint-dim); color: #059669; border: 1px solid var(--mint); }
+  .tl-applied-fail { background: var(--rose-dim); color: #e11d48; border: 1px solid var(--rose); }
+  .tl-applied-manual { background: var(--peach-dim); color: #ea580c; border: 1px solid var(--peach); }
+  .tl-detail {
+    font-size: 0.68rem; color: var(--text-muted); font-weight: 600; font-family: 'Space Mono', monospace;
+    padding: 0.3rem 0.6rem 0.3rem 4.5rem; line-height: 1.4;
+    background: var(--surface2); border-radius: 0 0 8px 8px; border: 1px solid var(--border); border-top: none;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* Skill pills */
+  .skill-pills { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .skill-pill {
+    padding: 0.3rem 0.7rem; border-radius: 99px; font-size: 0.72rem; font-weight: 700;
+    background: var(--surface2); border: 1px solid var(--border);
+    display: flex; align-items: center; gap: 0.35rem; transition: transform 0.1s;
+  }
+  .skill-pill:hover { transform: scale(1.05); }
+  .skill-pill .count {
+    font-size: 0.62rem; font-weight: 800; background: var(--pink-dim); color: var(--pink);
+    padding: 0.1rem 0.35rem; border-radius: 99px; border: 1px solid var(--pink-soft);
+  }
+
+  /* Misuse chips */
+  .misuse-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.45rem; }
+  .misuse-name { font-size: 0.75rem; font-weight: 700; width: 110px; flex-shrink: 0; }
+  .misuse-bar { flex: 1; height: 10px; background: var(--surface2); border-radius: 99px; overflow: hidden; border: 1px solid var(--border); }
+  .misuse-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--peach), var(--rose)); }
+  .misuse-val { font-size: 0.68rem; font-weight: 800; color: var(--text-muted); width: 32px; text-align: right; }
+
+  /* Footer */
+  .footer {
+    text-align: center; margin-top: 2rem; padding-top: 1.2rem;
+    border-top: 2px dashed var(--border); color: var(--text-muted);
+    font-size: 0.75rem; font-weight: 600;
+  }
+  .footer a { color: var(--pink); text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .stats { grid-template-columns: repeat(3,1fr); }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 600px) {
+    .stats { grid-template-columns: repeat(2,1fr); }
+    body { padding: 1rem; }
+    .header h1 { font-size: 1.8rem; }
+  }
+
+  /* Tooltip */
+  .tt { position: relative; cursor: default; }
+  .tt::after {
+    content: attr(data-tip); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    background: var(--text); color: #fff; font-size: 0.65rem; font-weight: 700;
+    padding: 0.25rem 0.5rem; border-radius: 6px; white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: opacity 0.15s;
+  }
+  .tt:hover::after { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="header">
+  <h1>Auto-Reflect</h1>
+  <p class="sub">Closed-loop self-improvement for Claude Code</p>
+  <div class="divider"></div>
+</div>
+
+<!-- Stats -->
+<div class="stats">
+  <div class="stat"><div class="stat-val" id="statSessions">--</div><div class="stat-lbl">Sessions</div></div>
+  <div class="stat"><div class="stat-val" id="statAvg">--</div><div class="stat-lbl">Avg Score</div></div>
+  <div class="stat"><div class="stat-val" id="statPerfect">--</div><div class="stat-lbl">Perfect (100)</div></div>
+  <div class="stat"><div class="stat-val" id="statBelow70">--</div><div class="stat-lbl">Below 70</div></div>
+  <div class="stat"><div class="stat-val" id="statPending">0</div><div class="stat-lbl">Pending Review</div></div>
+  <div class="stat"><div class="stat-val" id="statReviewed">0</div><div class="stat-lbl">Reviewed</div></div>
+</div>
+
+<!-- Row 1: Score Trend + Distribution -->
+<div class="grid-2">
+  <div class="card">
+    <div class="card-title"><span class="badge b-pink">~</span> Score Trend (daily avg)</div>
+    <div class="chart-wrap trend-chart" id="trendChart"></div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="badge b-lav">#</span> Score Distribution</div>
+    <div class="chart-wrap" id="histoChart" style="height:180px;"></div>
+  </div>
+</div>
+
+<!-- Row 2: Tool Errors + Recent Sessions -->
+<div class="grid-2">
+  <div class="card">
+    <div class="card-title"><span class="badge b-rose">!</span> Tool Error Rates</div>
+    <div id="errorBars"></div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="badge b-peach">~</span> Tool Misuse Patterns</div>
+    <div id="misuseBars"></div>
+    <div style="margin-top:0.8rem;padding:0.5rem 0.7rem;background:var(--surface2);border-radius:12px;border:1px dashed var(--border);font-size:0.72rem;color:var(--text-muted);">
+      Misuses = using Bash for grep/cat/find when dedicated tools exist
+    </div>
+  </div>
+</div>
+
+<!-- Row 3: Skills + Agents -->
+<div class="grid-2">
+  <div class="card">
+    <div class="card-title"><span class="badge b-mint">S</span> Top Skills Used</div>
+    <div class="skill-pills" id="skillPills"></div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="badge b-sky">A</span> Agent Usage</div>
+    <div id="agentBars"></div>
+  </div>
+</div>
+
+<!-- Row 4: Pending Review -->
+<div class="card" style="margin-bottom:1.2rem;">
+  <div class="card-title"><span class="badge b-peach">!</span> Pending Review <span id="pendingCount" style="font-size:0.65rem;font-weight:800;background:var(--peach-dim);color:#ea580c;border:1px solid var(--peach);padding:0.1rem 0.45rem;border-radius:99px;margin-left:0.3rem;"></span></div>
+  <div id="pendingProposals"></div>
+  <div id="noPending" style="display:none;font-size:0.8rem;color:var(--text-muted);font-weight:600;padding:0.8rem;text-align:center;background:var(--surface2);border-radius:12px;border:1px dashed var(--border);">All caught up -- nothing to review</div>
+  <div class="bulk-bar" id="bulkBar" style="display:none;">
+    <button class="btn btn-reject btn-bulk" onclick="bulkAction('reject-all')">Reject All</button>
+    <button class="btn btn-approve btn-bulk" onclick="bulkAction('approve-all')">Approve All</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Row 5: Reviewed (approved + rejected) -->
+<div class="card" style="margin-bottom:1.2rem;">
+  <div class="card-title"><span class="badge b-lav">H</span> Reviewed <span id="reviewedCount" style="font-size:0.65rem;font-weight:800;background:var(--blue-dim);color:#1d4ed8;border:1px solid var(--blue);padding:0.1rem 0.45rem;border-radius:99px;margin-left:0.3rem;"></span></div>
+  <div class="timeline" id="history"></div>
+</div>
+
+<!-- Row 5: Recent Sessions -->
+<div class="card" style="margin-bottom:1.2rem;">
+  <div class="card-title"><span class="badge b-pink">R</span> Recent Sessions</div>
+  <div style="overflow-x:auto;">
+    <table class="session-table" id="sessionsTable">
+      <thead><tr><th>Date</th><th>Score</th><th>Tools</th><th>Errors</th><th>Corrections</th><th>Misuses</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="footer">
+  Built by Tyson Heim &middot; <a href="https://github.com/TysonHeim/claude-auto-reflect">github.com/TysonHeim/claude-auto-reflect</a> &middot; Human-in-the-loop, always
+</div>
+
+</div>
+
+<script>
+// ── DATA ──
+const DATA = /*__DATA_PLACEHOLDER__*/{};
+
+// ── SCORE TREND (SVG line chart) ──
+(function() {
+  const el = document.getElementById('trendChart');
+  const d = DATA.daily_scores;
+  const W = 500, H = 160, pad = {t:10,r:10,b:28,l:36};
+  const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+  const minY = 60, maxY = 100;
+
+  const x = (i) => pad.l + (i / (d.length - 1)) * iw;
+  const y = (v) => pad.t + ih - ((Math.min(Math.max(v, minY), maxY) - minY) / (maxY - minY)) * ih;
+
+  let path = d.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p.avg).toFixed(1)}`).join(' ');
+  let area = path + ` L${x(d.length-1).toFixed(1)},${(pad.t+ih).toFixed(1)} L${x(0).toFixed(1)},${(pad.t+ih).toFixed(1)} Z`;
+  let dots = d.map((p, i) => `<circle class="trend-dot tt" cx="${x(i).toFixed(1)}" cy="${y(p.avg).toFixed(1)}" data-tip="${p.date.slice(5)}: ${p.avg} (${p.count} sessions)"/>`).join('');
+
+  // Grid lines
+  let gridLines = '';
+  for (let v = 60; v <= 100; v += 10) {
+    gridLines += `<line class="trend-grid" x1="${pad.l}" y1="${y(v).toFixed(1)}" x2="${W-pad.r}" y2="${y(v).toFixed(1)}"/>`;
+    gridLines += `<text class="trend-label" x="${pad.l-4}" y="${y(v).toFixed(1)}" text-anchor="end" dominant-baseline="middle">${v}</text>`;
+  }
+  // X labels (every 4th)
+  let xLabels = d.filter((_, i) => i % 4 === 0).map((p, _, arr) => {
+    const idx = d.indexOf(p);
+    return `<text class="trend-label" x="${x(idx).toFixed(1)}" y="${H - 4}" text-anchor="middle">${p.date.slice(5)}</text>`;
+  }).join('');
+
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
+    <defs><linearGradient id="pinkGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f472b6"/><stop offset="100%" stop-color="#f472b6" stop-opacity="0"/>
+    </linearGradient></defs>
+    ${gridLines}
+    <path class="trend-area" d="${area}"/>
+    <path class="trend-line" d="${path}"/>
+    ${dots}
+    ${xLabels}
+  </svg>`;
+})();
+
+// ── SCORE DISTRIBUTION (histogram) ──
+(function() {
+  const el = document.getElementById('histoChart');
+  const dist = DATA.score_distribution;
+  const buckets = Object.entries(dist).map(([k,v]) => ({label: k + 's', val: v}));
+  const W = 500, H = 170, pad = {t:20,r:10,b:28,l:10};
+  const maxVal = Math.max(...buckets.map(b => b.val));
+  const bw = (W - pad.l - pad.r) / buckets.length;
+  const colors = ['#fda4af','#fdba74','#fcd34d','#60a5fa','#f472b6'];
+
+  let bars = buckets.map((b, i) => {
+    const bh = (b.val / maxVal) * (H - pad.t - pad.b);
+    const bx = pad.l + i * bw + bw * 0.15;
+    const by = H - pad.b - bh;
+    const w = bw * 0.7;
+    return `<rect class="histo-bar" x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${w.toFixed(1)}" height="${bh.toFixed(1)}" fill="${colors[i]}"/>
+      <text class="histo-count" x="${(bx + w/2).toFixed(1)}" y="${(by - 5).toFixed(1)}">${b.val}</text>
+      <text class="histo-label" x="${(bx + w/2).toFixed(1)}" y="${(H - 10).toFixed(1)}">${b.label}</text>`;
+  }).join('');
+
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">${bars}</svg>`;
+})();
+
+// ── TOOL ERROR RATES ──
+(function() {
+  const el = document.getElementById('errorBars');
+  const maxRate = Math.max(...DATA.tool_error_rates.map(t => t.rate));
+  const colors = ['#fda4af','#f472b6','#60a5fa','#fdba74','#7dd3fc','#6ee7b7','#fbb6d0','#fcd34d'];
+  el.innerHTML = DATA.tool_error_rates.map((t, i) =>
+    `<div class="bar-row">
+      <span class="bar-name">${t.tool.replace('mcp__','')}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${(t.rate/maxRate*100).toFixed(0)}%;background:linear-gradient(90deg,${colors[i%8]},${colors[(i+1)%8]});"></div></div>
+      <span class="bar-val">${t.rate}%</span>
+    </div>`
+  ).join('');
+})();
+
+// ── TOOL MISUSES ──
+(function() {
+  const el = document.getElementById('misuseBars');
+  const maxVal = Math.max(...DATA.tool_misuses.map(m => m[1]));
+  el.innerHTML = DATA.tool_misuses.map(([name, count]) =>
+    `<div class="misuse-row">
+      <span class="misuse-name">${name}</span>
+      <div class="misuse-bar"><div class="misuse-fill" style="width:${(count/maxVal*100).toFixed(0)}%;"></div></div>
+      <span class="misuse-val">${count}</span>
+    </div>`
+  ).join('');
+})();
+
+// ── SKILLS ──
+(function() {
+  const el = document.getElementById('skillPills');
+  el.innerHTML = DATA.top_skills.map(([name, count]) =>
+    `<div class="skill-pill">${name}<span class="count">${count}</span></div>`
+  ).join('');
+})();
+
+// ── AGENTS ──
+(function() {
+  const el = document.getElementById('agentBars');
+  const maxC = Math.max(...DATA.agent_usage.map(a => a.count));
+  const colors = ['#60a5fa','#7dd3fc','#f472b6','#6ee7b7'];
+  el.innerHTML = DATA.agent_usage.map((a, i) =>
+    `<div class="bar-row">
+      <span class="bar-name">${a.type}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${(a.count/maxC*100).toFixed(0)}%;background:${colors[i%4]};"></div></div>
+      <span class="bar-val">${a.count}</span>
+    </div>`
+  ).join('');
+})();
+
+// ── STAT CARDS ──
+document.getElementById('statSessions').textContent = DATA.summary.total_sessions;
+document.getElementById('statAvg').textContent = DATA.summary.avg_score;
+document.getElementById('statPerfect').textContent = DATA.summary.perfect_sessions;
+document.getElementById('statBelow70').textContent = DATA.summary.below_70;
+document.getElementById('statPending').textContent = DATA.summary.pending_proposals;
+document.getElementById('statReviewed').textContent = DATA.proposal_history.length;
+
+// ── SERVER MODE DETECTION ──
+const IS_SERVED = location.protocol === 'http:';
+
+// ── TOAST ──
+function showToast(msg, duration = 2500) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), duration);
+}
+
+// ── API ACTIONS ──
+async function approveProposal(fingerprint) {
+  if (!IS_SERVED) { showToast('Run dashboard_server.py for actions'); return; }
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Applying...';
+  showToast('Approving & applying...', 10000);
+  try {
+    const res = await fetch('/api/approve', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({fingerprint})
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const output = data.output || '';
+      const applied = output.includes('Applied:');
+      const failed = output.includes('Apply failed:');
+      if (applied) showToast('Approved & applied', 3000);
+      else if (failed) showToast('Approved but apply failed -- check logs', 4000);
+      else showToast('Approved');
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      showToast('Error: ' + (data.error || 'unknown'), 4000);
+      btn.disabled = false;
+      btn.textContent = 'Approve';
+    }
+  } catch(e) { showToast('Failed: ' + e.message, 4000); btn.disabled = false; btn.textContent = 'Approve'; }
+}
+
+async function rejectProposal(fingerprint) {
+  if (!IS_SERVED) { showToast('Run dashboard_server.py for actions'); return; }
+  const btn = event.target;
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/reject', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({fingerprint})
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('Rejected');
+      setTimeout(() => location.reload(), 800);
+    } else {
+      showToast('Error: ' + (data.error || 'unknown'));
+      btn.disabled = false;
+    }
+  } catch(e) { showToast('Failed: ' + e.message); btn.disabled = false; }
+}
+
+async function bulkAction(action) {
+  if (!IS_SERVED) { showToast('Run dashboard_server.py for actions'); return; }
+  const pending = DATA.latest_proposals.filter(p => p.status === 'pending_review');
+  if (action === 'reject-all') {
+    const res = await fetch('/api/reject-all', {method: 'POST'});
+    const data = await res.json();
+    if (data.ok) { showToast('All rejected'); setTimeout(() => location.reload(), 800); }
+  } else if (action === 'approve-all') {
+    const fingerprints = pending.map(p => p.fingerprint);
+    const res = await fetch('/api/approve-all', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({fingerprints})
+    });
+    const data = await res.json();
+    if (data.ok) { showToast('All approved'); setTimeout(() => location.reload(), 800); }
+  }
+}
+
+// ── PENDING REVIEW ──
+(function() {
+  const el = document.getElementById('pendingProposals');
+  const countEl = document.getElementById('pendingCount');
+  const noEl = document.getElementById('noPending');
+  const bulkBar = document.getElementById('bulkBar');
+  const pending = DATA.latest_proposals.filter(p => p.status === 'pending_review');
+  countEl.textContent = pending.length;
+  if (pending.length === 0) {
+    el.style.display = 'none';
+    noEl.style.display = 'block';
+  } else {
+    bulkBar.style.display = 'flex';
+    el.innerHTML = pending.map((p) => {
+      const fp = (p.fingerprint || '').replace(/'/g, "\\'");
+      const buttons = IS_SERVED
+        ? `<div class="proposal-actions">
+             <button class="btn btn-approve" onclick="approveProposal('${fp}')">Approve</button>
+             <button class="btn btn-reject" onclick="rejectProposal('${fp}')">Reject</button>
+           </div>`
+        : '';
+      return `<div class="proposal">
+        <span class="pri pri-${p.priority}">${p.priority || 'med'}</span>
+        <span class="type-tag">${p.type || p.action}</span>
+        <span class="text">${p.proposal}</span>
+        ${buttons}
+      </div>`;
+    }).join('');
+    if (!IS_SERVED) bulkBar.style.display = 'none';
+  }
+})();
+
+// ── REVIEWED (approved + rejected) ──
+(function() {
+  const el = document.getElementById('history');
+  const countEl = document.getElementById('reviewedCount');
+  const reviewed = DATA.proposal_history;
+  countEl.textContent = reviewed.length;
+  el.innerHTML = reviewed.slice().reverse().map(h => {
+    let appliedBadge = '';
+    if (h.action === 'approved') {
+      if (h.applied === true) {
+        appliedBadge = '<span class="tl-applied tl-applied-ok">applied</span>';
+      } else if (h.applied === false) {
+        appliedBadge = '<span class="tl-applied tl-applied-fail">failed</span>';
+      } else {
+        appliedBadge = '<span class="tl-applied tl-applied-manual">manual</span>';
+      }
+    }
+    const detail = h.apply_result || h.apply_error || '';
+    const detailHtml = detail ? `<div class="tl-detail">${detail}</div>` : '';
+    return `<div class="tl-item-wrap">
+      <div class="tl-item">
+        <span class="tl-action tl-${h.action}">${h.action}</span>
+        ${appliedBadge}
+        <span class="tl-date">${h.date.slice(5,10)}</span>
+        <span class="tl-summary">${h.summary}</span>
+      </div>
+      ${detailHtml}
+    </div>`;
+  }).join('');
+})();
+
+// ── SESSIONS TABLE ──
+(function() {
+  const tbody = document.querySelector('#sessionsTable tbody');
+  const scoreClass = (s) => s === 100 ? 'great' : s >= 90 ? 'good' : s >= 70 ? 'ok' : 'bad';
+  tbody.innerHTML = DATA.recent_sessions.slice().reverse().map(s =>
+    `<tr>
+      <td>${s.date.replace('T',' ')}</td>
+      <td><span class="score-pill ${scoreClass(s.score)}">${s.score}</span></td>
+      <td>${s.tools}</td>
+      <td>${s.errors || '-'}</td>
+      <td>${s.corrections || '-'}</td>
+      <td>${s.misuses || '-'}</td>
+    </tr>`
+  ).join('');
+})();
+</script>
+</body>
+</html>

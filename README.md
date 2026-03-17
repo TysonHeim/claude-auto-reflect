@@ -87,13 +87,45 @@ auto-reflect --status            # system dashboard
 auto-reflect --latest            # analyze latest session
 auto-reflect --batch 20          # batch analyze last 20 sessions
 
-# Manage proposals
-auto-reflect-proposals --list    # see pending proposals
-auto-reflect-proposals --approve 1,3
+# Manage proposals (CLI)
+auto-reflect-proposals --list           # see pending proposals
+auto-reflect-proposals --approve 1,3   # approve by index
+auto-reflect-proposals --approve-all   # approve and apply all pending
 auto-reflect-proposals --reject 2
-auto-reflect-proposals --expire  # auto-reject stale proposals
-auto-reflect-proposals --history # audit trail with effectiveness status
+auto-reflect-proposals --reject-all
+auto-reflect-proposals --expire        # auto-reject stale proposals
+auto-reflect-proposals --history       # audit trail with effectiveness status
 ```
+
+## Web Dashboard
+
+A local web dashboard lets you review and approve proposals with one click, with live stats on session scores, tool errors, and skill usage.
+
+```bash
+python3 ~/.claude/auto-reflect/scripts/dashboard_server.py
+```
+
+Opens at **http://localhost:7700** automatically.
+
+**What it shows:**
+- Session score trend and distribution
+- Tool error rates and misuse patterns
+- Top skills and agent usage
+- Pending proposals with Approve/Reject buttons (auto-applies on approval)
+- Full audit history with apply status
+
+**Proposal auto-apply:** Approving a proposal immediately applies it:
+- `feedback_memory` → writes a memory `.md` file and updates `MEMORY.md`
+- `memory_cleanup` → deletes or fixes stale memory files
+- `claude_md_patch` → appends a rule to your `CLAUDE.md`
+- `skill_patch` / `agent_patch` → spawns `claude -p` to edit the target file
+
+**Regenerate the dashboard manually:**
+```bash
+python3 ~/.claude/auto-reflect/scripts/generate_dashboard.py
+```
+
+The server regenerates the dashboard on every page load, so it always reflects current data.
 
 ## How Scoring Works
 

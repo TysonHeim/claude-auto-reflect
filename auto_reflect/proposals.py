@@ -3,27 +3,36 @@
 Manage improvement proposals — list, approve, reject, expire.
 
 Usage:
-    python3 -m auto_reflect.proposals --list
-    python3 -m auto_reflect.proposals --approve 1,3,5
-    python3 -m auto_reflect.proposals --reject 2,4
-    python3 -m auto_reflect.proposals --reject-all
-    python3 -m auto_reflect.proposals --expire
-    python3 -m auto_reflect.proposals --history
-    python3 -m auto_reflect.proposals --json
+    python3 proposals.py --list                    # show pending proposals
+    python3 proposals.py --approve 1,3,5           # approve by index
+    python3 proposals.py --reject 2,4              # reject by index
+    python3 proposals.py --approve-id <fp>         # approve by content fingerprint (stable, used by dashboard)
+    python3 proposals.py --reject-id <fp>          # reject by content fingerprint
+    python3 proposals.py --reject-all              # reject all pending (batch cleanup)
+    python3 proposals.py --expire                  # auto-reject proposals older than 7 days
+    python3 proposals.py --history                 # show approved/rejected log
+    python3 proposals.py --json                    # raw JSON (combinable with other flags)
 """
 
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from auto_reflect.config import (
-    IMPROVEMENTS_DIR,
-    OBSERVATIONS_DIR,
-    HISTORY_FILE,
-    EXPIRE_DAYS,
-    CLAUDE_DIR,
+IMPROVEMENTS_DIR = os.path.expanduser("~/.claude/auto-reflect/improvements")
+OBSERVATIONS_DIR = os.path.expanduser("~/.claude/auto-reflect/observations")
+HISTORY_FILE = os.path.expanduser("~/.claude/auto-reflect/proposal-history.json")
+MEMORY_DIR = os.path.expanduser(
+    "~/.claude/projects/-Users-tysonheim--claude/memory"
+)
+CLAUDE_MD = os.path.expanduser("~/.claude/CLAUDE.md")
+AGENTS_DIR = os.path.expanduser("~/.claude/agents")
+EXPIRE_DAYS = 7
+
+# Import shared thresholds — single source of truth in propose_improvements.py
+from propose_improvements import (
     CORRECTION_CLUSTER_SIMILARITY,
     RULE_MATCH_SIMILARITY,
     EFFECTIVENESS_REVIEW_WINDOW,
@@ -33,8 +42,6 @@ from auto_reflect.config import (
 def load_all_pending():
     """Load all pending proposals across all files, with source tracking."""
     pending = []
-    if not os.path.isdir(IMPROVEMENTS_DIR):
-        return pending
     for f in sorted(Path(IMPROVEMENTS_DIR).glob("*.json")):
         try:
             with open(f) as fh:
@@ -74,6 +81,7 @@ def update_proposal_status(proposal, new_status):
     with open(source) as f:
         all_proposals = json.load(f)
 
+    # Find and update the matching proposal by content fingerprint
     fp = _fingerprint(proposal)
     updated = False
     for p in all_proposals:
@@ -92,20 +100,15 @@ def update_proposal_status(proposal, new_status):
 
 def _fingerprint(proposal):
     """Generate a content fingerprint for matching."""
-    content = proposal.get("content", {})
     return (
-        content.get("body", "")
-        or content.get("issue", "")
-        or content.get("query", "")
-        or content.get("target", "")
+        proposal.get("proposal", "")
+        or proposal.get("_summary", "")
     ).lower().strip()[:100]
 
 
 def load_observations():
     """Load all observations sorted by time."""
     observations = []
-    if not os.path.isdir(OBSERVATIONS_DIR):
-        return observations
     for f in sorted(Path(OBSERVATIONS_DIR).glob("*.json")):
         try:
             with open(f) as fh:
@@ -117,8 +120,6 @@ def load_observations():
 
 def get_observation_count():
     """Return the current number of observation files."""
-    if not os.path.isdir(OBSERVATIONS_DIR):
-        return 0
     return len(list(Path(OBSERVATIONS_DIR).glob("*.json")))
 
 
@@ -133,7 +134,10 @@ def compute_baseline(proposal, observations):
     window = observations[-50:] if len(observations) >= 50 else observations
 
     if ptype == "feedback_memory":
+        # Error pattern proposals have tool + category in content
+        evidence = content.get("evidence", "")
         name = content.get("name", "")
+        description = content.get("description", "")
 
         # Try to extract tool and category from the name (e.g., "feedback-read-file-not-found")
         known_tools = {"bash", "edit", "read", "grep", "glob", "agent", "write", "skill"}
@@ -146,6 +150,7 @@ def compute_baseline(proposal, observations):
                 category = parts[1]
 
         if tool and category:
+            # Count matching errors in recent observations
             count = 0
             for obs in window:
                 for t, msgs in obs.get("error_messages", {}).items():
@@ -159,7 +164,7 @@ def compute_baseline(proposal, observations):
                 "lower_is_better": True,
             }
 
-        # Correction cluster proposals
+        # Correction cluster proposals — count matching corrections
         body = content.get("body", "")
         if body:
             count = 0
@@ -176,7 +181,8 @@ def compute_baseline(proposal, observations):
             }
 
     elif ptype == "agent_patch":
-        target = content.get("target", "")
+        # Agent error rate
+        target = content.get("target", "")  # e.g., "agents/code-explorer.md"
         agent_type = target.replace("agents/", "").replace(".md", "")
         if agent_type:
             total = 0
@@ -197,6 +203,7 @@ def compute_baseline(proposal, observations):
             }
 
     elif ptype == "claude_md_patch":
+        # Correction frequency matching the rule
         correction_text = content.get("correction_text", "")
         rule = content.get("rule", "")
         match_text = correction_text or rule
@@ -215,6 +222,7 @@ def compute_baseline(proposal, observations):
             }
 
     elif ptype == "investigation":
+        # Average session score
         scores = [obs.get("score", 0) for obs in window if obs.get("score") is not None]
         if scores:
             return {
@@ -226,6 +234,7 @@ def compute_baseline(proposal, observations):
             }
 
     elif ptype == "skill_patch":
+        # Tool error rate
         target = content.get("target", "")
         tool = content.get("tool", "")
         if not tool and target:
@@ -269,20 +278,299 @@ def infer_artifact_path(proposal):
     if ptype == "feedback_memory":
         name = content.get("name", "")
         if name:
-            # Memory location varies by project; return relative hint
-            return f"memory/{name}.md"
+            return os.path.join(MEMORY_DIR, f"{name}.md")
     elif ptype == "claude_md_patch":
-        return os.path.join(CLAUDE_DIR, "CLAUDE.md")
+        return CLAUDE_MD
     elif ptype == "agent_patch":
         target = content.get("target", "")
         if target:
-            return os.path.join(CLAUDE_DIR, target)
+            return os.path.join(os.path.dirname(AGENTS_DIR), target)
     elif ptype == "skill_patch":
         target = content.get("target", "")
         if target:
             return target
 
     return None
+
+
+MEMORY_INDEX = os.path.join(MEMORY_DIR, "MEMORY.md")
+SKILLS_DIR = os.path.expanduser("~/.claude/skills")
+
+
+def apply_proposal(proposal):
+    """Auto-apply an approved proposal. Returns (success, message)."""
+    # Support both old-style nested `type`+`content` and flat `action`+direct fields
+    ptype = proposal.get("action", proposal.get("type", ""))
+    content = proposal.get("content") or {}
+
+    # Map flat proposal fields into the content dict the helpers expect
+    if not content:
+        content = {
+            # feedback_memory fields
+            "name": proposal.get("memory_file", "").replace(".md", "") or None,
+            "body": proposal.get("memory_content", ""),
+            "description": proposal.get("proposal", ""),
+            "memory_type": "feedback",
+            # memory_cleanup fields
+            "target": proposal.get("memory_file", ""),
+            "action": proposal.get("cleanup_action", ""),
+            "issue": proposal.get("proposal", ""),
+            # claude_md_patch / skill_patch fields
+            "rule": proposal.get("rule", ""),
+        }
+
+    try:
+        if ptype == "feedback_memory":
+            return _apply_feedback_memory(content)
+        elif ptype == "claude_md_patch":
+            return _apply_claude_md_rule(content)
+        elif ptype == "memory_cleanup":
+            return _apply_memory_cleanup(content)
+        elif ptype in ("skill_patch", "agent_patch", "eval_query", "investigation"):
+            return _apply_via_claude(proposal)
+        else:
+            return False, f"Unknown proposal type: {ptype}"
+    except Exception as e:
+        return False, f"Apply failed: {e}"
+
+
+def _apply_feedback_memory(content):
+    """Write a memory .md file and update MEMORY.md index."""
+    name = content.get("name", f"feedback-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
+    description = content.get("description", "Auto-generated feedback memory")
+    memory_type = content.get("memory_type", "feedback")
+    body = content.get("body", "")
+
+    if not body:
+        return False, "No body content in proposal"
+
+    # Write memory file
+    filename = f"{name}.md"
+    filepath = os.path.join(MEMORY_DIR, filename)
+
+    memory_content = f"""---
+name: {name}
+description: {description}
+type: {memory_type}
+---
+
+{body}
+"""
+    os.makedirs(MEMORY_DIR, exist_ok=True)
+    with open(filepath, "w") as f:
+        f.write(memory_content)
+
+    # Update MEMORY.md index
+    _update_memory_index(filename, description)
+
+    return True, f"Created {filepath}"
+
+
+def _apply_claude_md_rule(content):
+    """Append a rule to CLAUDE.md Corrections section."""
+    rule = content.get("rule", content.get("body", ""))
+    if not rule:
+        return False, "No rule content in proposal"
+
+    if not os.path.exists(CLAUDE_MD):
+        return False, f"CLAUDE.md not found at {CLAUDE_MD}"
+
+    with open(CLAUDE_MD) as f:
+        text = f.read()
+
+    # Find the Corrections section and append
+    marker = "## Corrections"
+    if marker not in text:
+        # Add the section if it doesn't exist
+        text += f"\n\n{marker}\n- {rule}\n"
+    else:
+        # Append after the last line in the Corrections section
+        idx = text.index(marker)
+        # Find end of Corrections section (next ## or end of file)
+        rest = text[idx + len(marker):]
+        next_section = rest.find("\n## ")
+        if next_section == -1:
+            text = text.rstrip() + f"\n- {rule}\n"
+        else:
+            insert_at = idx + len(marker) + next_section
+            text = text[:insert_at] + f"\n- {rule}" + text[insert_at:]
+
+    with open(CLAUDE_MD, "w") as f:
+        f.write(text)
+
+    return True, f"Added rule to {CLAUDE_MD}"
+
+
+def _apply_memory_cleanup(content):
+    """Apply memory cleanup -- fix or delete based on the proposal's action field."""
+    target = content.get("target", content.get("name", ""))
+    action_text = content.get("action", "").lower()
+    issue = content.get("issue", "").lower()
+
+    if not target:
+        return False, "No target file specified"
+
+    filename = target if target.endswith(".md") else f"{target}.md"
+    filepath = os.path.join(MEMORY_DIR, filename)
+
+    # If the proposal says to fix/add frontmatter (not delete), route to Claude
+    if any(word in action_text for word in ["add frontmatter", "convert", "fix", "update"]):
+        return _apply_via_claude({
+            "type": "memory_cleanup",
+            "proposal": f"Fix memory file: {issue}",
+            "content": content,
+        })
+
+    # Only delete if the proposal explicitly says to delete or remove
+    if any(word in action_text for word in ["delete", "remove"]):
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            _remove_from_memory_index(filename)
+            return True, f"Deleted {filepath}"
+        else:
+            return False, f"File not found: {filepath}"
+
+    # Default: route to Claude for safety (don't delete unless told to)
+    return _apply_via_claude({
+        "type": "memory_cleanup",
+        "proposal": f"Memory cleanup: {issue}",
+        "content": content,
+    })
+
+
+def _apply_via_claude(proposal):
+    """Spawn claude -p to apply complex proposals (skill_patch, agent_patch, eval_query, investigation)."""
+    ptype = proposal.get("action", proposal.get("type", ""))
+    content = proposal.get("content") or {}
+    proposal_text = proposal.get("proposal", "")
+
+    # Build a focused prompt for Claude
+    if ptype == "skill_patch":
+        target = content.get("target", "")
+        issue = content.get("issue", "")
+        suggestion = content.get("suggestion", "")
+        prompt = (
+            f"Auto-reflect has detected a skill issue and the user has approved a fix.\n\n"
+            f"Target: {target}\n"
+            f"Issue: {issue}\n"
+            f"Suggestion: {suggestion}\n"
+            f"Full proposal: {proposal_text}\n\n"
+            f"Apply this fix. If it targets a specific skill, find it under ~/.claude/skills/ "
+            f"and make the improvement. If it's a general tool usage pattern, add a feedback "
+            f"memory to ~/.claude/projects/-Users-tysonheim--claude/memory/ and update MEMORY.md. "
+            f"Be concise and make minimal targeted changes."
+        )
+    elif ptype == "agent_patch":
+        target = content.get("target", "")
+        issue = content.get("issue", "")
+        suggestion = content.get("suggestion", "")
+        prompt = (
+            f"Auto-reflect has detected an agent issue and the user has approved a fix.\n\n"
+            f"Target: {target}\n"
+            f"Issue: {issue}\n"
+            f"Suggestion: {suggestion}\n\n"
+            f"Find the agent definition under ~/.claude/agents/ and apply the improvement. "
+            f"Be concise and make minimal targeted changes."
+        )
+    elif ptype == "eval_query":
+        skill = content.get("skill", "")
+        query = content.get("query", "")
+        should_trigger = content.get("should_trigger", True)
+        prompt = (
+            f"Auto-reflect wants to add a trigger eval query for skill '{skill}'.\n\n"
+            f"Query: {query}\n"
+            f"Should trigger: {should_trigger}\n\n"
+            f"Add this to the skill's evals/trigger-eval.json at ~/.claude/skills/{skill}/evals/trigger-eval.json. "
+            f"Follow the existing format in the file. If the file doesn't exist, create it."
+        )
+    elif ptype == "investigation":
+        prompt = (
+            f"Auto-reflect has detected a performance issue that needs investigation. "
+            f"The user has approved looking into it.\n\n"
+            f"Issue: {proposal_text}\n"
+            f"Evidence: {json.dumps(content, indent=2)}\n\n"
+            f"Investigate the root cause. Check relevant session observations in "
+            f"~/.claude/auto-reflect/observations/ for patterns. "
+            f"Write your findings as a feedback memory in "
+            f"~/.claude/projects/-Users-tysonheim--claude/memory/ and update MEMORY.md. "
+            f"Focus on actionable insights that will prevent the issue."
+        )
+    elif ptype == "memory_cleanup":
+        target = content.get("target", "")
+        issue = content.get("issue", "")
+        action_text = content.get("action", "")
+        prompt = (
+            f"Auto-reflect has flagged a memory file that needs fixing.\n\n"
+            f"File: ~/.claude/projects/-Users-tysonheim--claude/memory/{target}\n"
+            f"Issue: {issue}\n"
+            f"Suggested action: {action_text}\n\n"
+            f"Read the file, understand its content, and add proper frontmatter "
+            f"(name, description, type fields). Do NOT delete the file. "
+            f"The type should be one of: user, feedback, project, reference."
+        )
+    else:
+        return False, f"No claude handler for type: {ptype}"
+
+    # Spawn claude -p in the background
+    try:
+        result = subprocess.run(
+            ["claude", "-p", "--allowedTools", "Edit,Read,Write,Glob,Grep"],
+            input=prompt, capture_output=True, text=True, timeout=120,
+            cwd=os.path.expanduser("~/.claude"),
+        )
+        if result.returncode == 0:
+            # Truncate output for the log
+            output = result.stdout.strip()[:500]
+            return True, f"Claude applied: {output}"
+        else:
+            return False, f"Claude exited {result.returncode}: {result.stderr[:300]}"
+    except subprocess.TimeoutExpired:
+        return False, "Claude timed out (120s)"
+    except FileNotFoundError:
+        return False, "claude CLI not found in PATH"
+
+
+def _update_memory_index(filename, description):
+    """Add an entry to MEMORY.md index under Feedback Memories."""
+    if not os.path.exists(MEMORY_INDEX):
+        return
+
+    with open(MEMORY_INDEX) as f:
+        text = f.read()
+
+    entry = f"- [{filename}]({filename}) \u2014 {description}"
+
+    # Add under Feedback Memories section
+    marker = "## Feedback Memories"
+    if marker in text:
+        idx = text.index(marker) + len(marker)
+        # Find end of section (next ## or end)
+        rest = text[idx:]
+        next_section = rest.find("\n## ")
+        if next_section == -1:
+            text = text.rstrip() + f"\n{entry}\n"
+        else:
+            insert_at = idx + next_section
+            text = text[:insert_at] + f"\n{entry}" + text[insert_at:]
+    else:
+        text = text.rstrip() + f"\n\n{marker}\n{entry}\n"
+
+    with open(MEMORY_INDEX, "w") as f:
+        f.write(text)
+
+
+def _remove_from_memory_index(filename):
+    """Remove a file reference from MEMORY.md index."""
+    if not os.path.exists(MEMORY_INDEX):
+        return
+
+    with open(MEMORY_INDEX) as f:
+        lines = f.readlines()
+
+    filtered = [l for l in lines if filename not in l]
+
+    with open(MEMORY_INDEX, "w") as f:
+        f.writelines(filtered)
 
 
 def expire_old_proposals(pending):
@@ -305,6 +593,7 @@ def expire_old_proposals(pending):
 def format_list(pending, show_json=False):
     """Format pending proposals as numbered list."""
     if show_json:
+        # Strip internal fields
         clean = [{k: v for k, v in p.items() if not k.startswith("_")} for p in pending]
         return json.dumps(clean, indent=2, default=str)
 
@@ -321,6 +610,7 @@ def format_list(pending, show_json=False):
         priority = content.get("priority", "—")
         created = p.get("created", "")[:10]
 
+        # Age indicator
         age = ""
         if created:
             try:
@@ -357,9 +647,9 @@ def format_list(pending, show_json=False):
             lines.append(f"  **{i}.** {ptype}: {json.dumps(content)[:80]}{age}")
 
     lines.append("")
-    lines.append(f"Approve: `python3 -m auto_reflect.proposals --approve 1,3,5`")
-    lines.append(f"Reject:  `python3 -m auto_reflect.proposals --reject 2,4`")
-    lines.append(f"Reject all: `python3 -m auto_reflect.proposals --reject-all`")
+    lines.append(f"Approve: `python3 proposals.py --approve 1,3,5`")
+    lines.append(f"Reject:  `python3 proposals.py --reject 2,4`")
+    lines.append(f"Reject all: `python3 proposals.py --reject-all`")
 
     return "\n".join(lines)
 
@@ -397,6 +687,60 @@ def parse_indices(s):
     return indices
 
 
+def _act_on_proposal(p, action, history, observations, obs_count):
+    """Apply a single approve/reject action on proposal p, appending to history.
+
+    Shared by both index-based and fingerprint-based flows.
+    Returns the history entry dict (already appended to history).
+    """
+    update_proposal_status(p, action)
+
+    entry = {
+        "action": action,
+        "type": p.get("type"),
+        "summary": _fingerprint(p)[:60],
+        "content": {k: v for k, v in p.get("content", {}).items()},
+        "date": datetime.now().isoformat(),
+    }
+
+    if action == "approved" and p.get("type") != "revert":
+        baseline = compute_baseline(p, observations)
+        artifact = infer_artifact_path(p)
+        if baseline:
+            entry["baseline"] = baseline
+        if artifact:
+            entry["artifact_path"] = artifact
+        entry["review_window"] = {
+            "type": "session_count",
+            "value": EFFECTIVENESS_REVIEW_WINDOW,
+            "sessions_at_approval": obs_count,
+        }
+        entry["effectiveness_status"] = "pending"
+
+    history.append(entry)
+
+    marker = "✓" if action == "approved" else "✗"
+    print(f"  {marker} {p.get('type')} — {_fingerprint(p)[:60]}")
+
+    if action == "approved":
+        success, msg = apply_proposal(p)
+        if success:
+            entry["applied"] = True
+            entry["apply_result"] = msg[:300]
+            print(f"      Applied: {msg[:120]}")
+        else:
+            entry["applied"] = False
+            entry["apply_error"] = msg[:300]
+            print(f"      Apply failed: {msg[:120]}", file=sys.stderr)
+
+        if entry.get("baseline"):
+            b = entry["baseline"]
+            print(f"      Baseline: {b['metric_type']} = {b['metric_value']} (over {b['observation_window']} sessions)")
+            print(f"      Will check effectiveness after {EFFECTIVENESS_REVIEW_WINDOW} more sessions")
+
+    return entry
+
+
 def main():
     args = sys.argv[1:]
     show_json = "--json" in args
@@ -431,6 +775,30 @@ def main():
         print(f"Expired {len(expired)} proposals older than {EXPIRE_DAYS} days.")
         return
 
+    if "--approve-all" in args:
+        pending = load_all_pending()
+        if not pending:
+            print("No pending proposals to approve.")
+            return
+
+        history = load_history()
+        for p in pending:
+            update_proposal_status(p, "approved")
+            success, msg = apply_proposal(p)
+            entry = {
+                "action": "approved",
+                "type": p.get("action", p.get("type")),
+                "summary": _fingerprint(p)[:60],
+                "date": datetime.now().isoformat(),
+                "applied": True if success else False,
+                "apply_result": msg if success else "",
+                "apply_error": msg if not success else "",
+            }
+            history.append(entry)
+        save_history(history)
+        print(f"Approved and applied all {len(pending)} pending proposals.")
+        return
+
     if "--reject-all" in args:
         pending = load_all_pending()
         if not pending:
@@ -450,6 +818,27 @@ def main():
         print(f"Rejected all {len(pending)} pending proposals.")
         return
 
+    # Approve or reject by stable content fingerprint (used by dashboard — avoids positional index mismatch)
+    for i, a in enumerate(args):
+        if a in ("--approve-id", "--reject-id") and i + 1 < len(args):
+            action = "approved" if a == "--approve-id" else "rejected"
+            target_fp = args[i + 1]
+            pending = load_all_pending()
+            matched = [p for p in pending if _fingerprint(p) == target_fp]
+            if not matched:
+                print(f"No pending proposal found with fingerprint: {target_fp!r}", file=sys.stderr)
+                sys.exit(1)
+            history = load_history()
+            observations = load_observations() if action == "approved" else []
+            obs_count = len(observations)
+            for p in matched:
+                _act_on_proposal(p, action, history, observations, obs_count)
+            save_history(history)
+            verb = "approved" if action == "approved" else "rejected"
+            print(f"\n{len(matched)} proposal(s) {verb}.")
+            return
+
+    # Approve or reject by index
     action = None
     indices = set()
     for i, a in enumerate(args):
@@ -461,7 +850,7 @@ def main():
             indices = parse_indices(args[i + 1])
 
     if not action or not indices:
-        print("Usage: proposals --approve 1,3 | --reject 2,4 | --list | --reject-all | --expire")
+        print("Usage: proposals.py --approve 1,3 | --approve-id <fp> | --reject 2,4 | --reject-id <fp> | --list | --reject-all | --expire")
         return
 
     pending = load_all_pending()
@@ -478,52 +867,20 @@ def main():
             continue
 
         p = pending[idx - 1]
-        update_proposal_status(p, action)
-
-        entry = {
-            "action": action,
-            "type": p.get("type"),
-            "summary": _fingerprint(p)[:60],
-            "content": {k: v for k, v in p.get("content", {}).items()},
-            "date": datetime.now().isoformat(),
-        }
-
-        # Capture baseline and artifact path on approval (skip for reverts)
-        if action == "approved" and p.get("type") != "revert":
-            baseline = compute_baseline(p, observations)
-            artifact = infer_artifact_path(p)
-            if baseline:
-                entry["baseline"] = baseline
-            if artifact:
-                entry["artifact_path"] = artifact
-            entry["review_window"] = {
-                "type": "session_count",
-                "value": EFFECTIVENESS_REVIEW_WINDOW,
-                "sessions_at_approval": obs_count,
-            }
-            entry["effectiveness_status"] = "pending"
-
-        history.append(entry)
+        _act_on_proposal(p, action, history, observations, obs_count)
         acted += 1
-
-        marker = "✓" if action == "approved" else "✗"
-        print(f"  {marker} #{idx}: {p.get('type')} — {_fingerprint(p)[:60]}")
-        if action == "approved" and entry.get("baseline"):
-            b = entry["baseline"]
-            print(f"      Baseline: {b['metric_type']} = {b['metric_value']} (over {b['observation_window']} sessions)")
-            print(f"      Will check effectiveness after {EFFECTIVENESS_REVIEW_WINDOW} more sessions")
 
     save_history(history)
     print(f"\n{acted} proposal(s) {action}.")
 
+    # Summary of applied changes
     if action == "approved":
-        print("\nApproved proposals need manual execution:")
-        print("  - feedback_memory -> Create memory file in your Claude memory directory")
-        print("  - skill_patch -> Edit the relevant skill file")
-        print("  - eval_query -> Add to skill's trigger-eval.json")
-        print("  - claude_md_patch -> Add rule to CLAUDE.md Corrections section")
-        print("  - agent_patch -> Edit agent definition")
-        print("  - revert -> Delete the artifact file or revert the change")
+        applied_count = sum(1 for h in history[-acted:] if h.get("applied"))
+        failed_count = acted - applied_count
+        if applied_count:
+            print(f"\n{applied_count} proposal(s) auto-applied.")
+        if failed_count:
+            print(f"{failed_count} proposal(s) failed to apply — check errors above.")
 
 
 if __name__ == "__main__":
