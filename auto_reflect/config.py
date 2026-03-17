@@ -61,6 +61,11 @@ REJECTION_SUPPRESS_DAYS = int(os.environ.get("AUTO_REFLECT_REJECTION_DAYS", "30"
 # Deep analysis score threshold
 DEFAULT_ANALYSIS_THRESHOLD = int(os.environ.get("AUTO_REFLECT_ANALYSIS_THRESHOLD", "85"))
 
+# Effectiveness tracking thresholds
+EFFECTIVENESS_REVIEW_WINDOW = int(os.environ.get("AUTO_REFLECT_REVIEW_WINDOW", "30"))
+EFFECTIVENESS_IMPROVEMENT_THRESHOLD = float(os.environ.get("AUTO_REFLECT_IMPROVEMENT_THRESHOLD", "0.15"))
+EFFECTIVENESS_REGRESSION_THRESHOLD = float(os.environ.get("AUTO_REFLECT_REGRESSION_THRESHOLD", "-0.10"))
+
 
 def ensure_dirs():
     """Create all data directories if they don't exist."""

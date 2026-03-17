@@ -710,6 +710,204 @@ def similarity_check(text1, text2):
     return overlap >= 0.4
 
 
+# --- Effectiveness Tracking ---
+
+EFFECTIVENESS_IMPROVEMENT_THRESHOLD = 0.15  # 15% improvement to count as effective
+EFFECTIVENESS_REGRESSION_THRESHOLD = -0.10  # 10% worse = regression
+
+
+def check_effectiveness(observations):
+    """Check approved proposals that have passed their review window.
+
+    Re-measures the baseline metric and generates revert proposals for
+    ineffective or regressed changes. Updates effectiveness_status in history.
+
+    Returns a list of revert proposals.
+    """
+    if not os.path.exists(PROPOSAL_HISTORY):
+        return []
+
+    try:
+        with open(PROPOSAL_HISTORY) as f:
+            history = json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return []
+
+    current_obs_count = len(observations)
+    revert_proposals = []
+    history_modified = False
+
+    for entry in history:
+        if entry.get("action") != "approved":
+            continue
+        if entry.get("effectiveness_status") != "pending":
+            continue
+        if "baseline" not in entry or "review_window" not in entry:
+            continue
+
+        window = entry["review_window"]
+        sessions_needed = window.get("sessions_at_approval", 0) + window.get("value", 30)
+        if current_obs_count < sessions_needed:
+            continue
+
+        baseline = entry["baseline"]
+        post_approval_obs = observations[window.get("sessions_at_approval", 0):]
+        obs_window = baseline.get("observation_window", 50)
+        recent_obs = post_approval_obs[-obs_window:] if len(post_approval_obs) >= obs_window else post_approval_obs
+
+        current_value = remeasure_metric(baseline, recent_obs)
+        if current_value is None:
+            continue
+
+        baseline_value = baseline["metric_value"]
+        lower_is_better = baseline.get("lower_is_better", True)
+
+        if baseline_value == 0:
+            if current_value == 0:
+                delta_pct = 0.0
+            else:
+                delta_pct = -1.0 if lower_is_better else 1.0
+        else:
+            if lower_is_better:
+                delta_pct = (baseline_value - current_value) / baseline_value
+            else:
+                delta_pct = (current_value - baseline_value) / baseline_value
+
+        if delta_pct >= EFFECTIVENESS_IMPROVEMENT_THRESHOLD:
+            entry["effectiveness_status"] = "effective"
+            entry["effectiveness_checked"] = datetime.now().isoformat()
+            entry["effectiveness_current_value"] = current_value
+            entry["effectiveness_delta_pct"] = round(delta_pct * 100, 1)
+            history_modified = True
+        elif delta_pct <= EFFECTIVENESS_REGRESSION_THRESHOLD:
+            entry["effectiveness_status"] = "regressed"
+            entry["effectiveness_checked"] = datetime.now().isoformat()
+            entry["effectiveness_current_value"] = current_value
+            entry["effectiveness_delta_pct"] = round(delta_pct * 100, 1)
+            history_modified = True
+            revert_proposals.append(_make_revert_proposal(entry, current_value, delta_pct, "regressed"))
+        else:
+            entry["effectiveness_status"] = "ineffective"
+            entry["effectiveness_checked"] = datetime.now().isoformat()
+            entry["effectiveness_current_value"] = current_value
+            entry["effectiveness_delta_pct"] = round(delta_pct * 100, 1)
+            history_modified = True
+            revert_proposals.append(_make_revert_proposal(entry, current_value, delta_pct, "ineffective"))
+
+    if history_modified:
+        try:
+            with open(PROPOSAL_HISTORY, "w") as f:
+                json.dump(history, f, indent=2, default=str)
+        except IOError:
+            pass
+
+    return revert_proposals
+
+
+def remeasure_metric(baseline, observations):
+    """Re-measure a metric using the same parameters as the baseline."""
+    metric_type = baseline.get("metric_type", "")
+    params = baseline.get("metric_params", {})
+
+    if metric_type == "error_category_count":
+        tool = params.get("tool", "")
+        count = 0
+        for obs in observations:
+            for t, msgs in obs.get("error_messages", {}).items():
+                if t.lower() == tool.lower():
+                    count += len(msgs)
+        return count
+
+    elif metric_type == "correction_cluster_count":
+        fingerprint = params.get("fingerprint", "")
+        if not fingerprint:
+            return None
+        count = 0
+        for obs in observations:
+            for corr in obs.get("corrections", []):
+                if _jaccard(fingerprint.lower(), corr.lower()) >= 0.35:
+                    count += 1
+        return count
+
+    elif metric_type == "correction_match_count":
+        match_text = params.get("match_text", "")
+        if not match_text:
+            return None
+        count = 0
+        for obs in observations:
+            for corr in obs.get("corrections", []):
+                if _jaccard(match_text.lower(), corr.lower()) >= 0.4:
+                    count += 1
+        return count
+
+    elif metric_type == "agent_error_rate":
+        agent_type = params.get("agent_type", "")
+        total = 0
+        errors = 0
+        for obs in observations:
+            for agent in obs.get("agents_used", []):
+                if agent.get("subagent_type") == agent_type:
+                    total += 1
+                    if agent.get("is_error"):
+                        errors += 1
+        return round(errors / max(total, 1), 3)
+
+    elif metric_type == "tool_error_rate":
+        tool = params.get("tool", "")
+        total = 0
+        errors = 0
+        for obs in observations:
+            total += obs.get("tool_distribution", {}).get(tool, 0)
+            errors += obs.get("error_distribution", {}).get(tool, 0)
+        return round(errors / max(total, 1), 3)
+
+    elif metric_type == "avg_score":
+        scores = [obs.get("score", 0) for obs in observations if obs.get("score") is not None]
+        if scores:
+            return round(sum(scores) / len(scores), 1)
+        return None
+
+    return None
+
+
+def _jaccard(text1, text2):
+    """Quick Jaccard similarity for text comparison."""
+    stop = {"the", "a", "an", "is", "are", "was", "were", "be", "been",
+            "have", "has", "had", "do", "does", "did", "will", "would",
+            "could", "should", "that", "this", "with", "from", "for",
+            "not", "but", "and", "or", "to", "of", "in", "on", "at", "by"}
+    w1 = {w for w in text1.split() if len(w) > 2 and w not in stop}
+    w2 = {w for w in text2.split() if len(w) > 2 and w not in stop}
+    if not w1 or not w2:
+        return 0.0
+    return len(w1 & w2) / len(w1 | w2)
+
+
+def _make_revert_proposal(history_entry, current_value, delta_pct, reason):
+    """Create a revert proposal from an ineffective/regressed history entry."""
+    baseline = history_entry.get("baseline", {})
+    return {
+        "type": "revert",
+        "status": "pending_review",
+        "_summary": f"revert: {history_entry.get('summary', '')[:50]} ({reason})",
+        "content": {
+            "original_proposal_date": history_entry.get("date", ""),
+            "original_type": history_entry.get("type", ""),
+            "original_summary": history_entry.get("summary", ""),
+            "artifact_path": history_entry.get("artifact_path", ""),
+            "baseline_value": baseline.get("metric_value"),
+            "current_value": current_value,
+            "delta_pct": round(delta_pct * 100, 1),
+            "metric_type": baseline.get("metric_type", ""),
+            "reason": reason,
+            "action": f"Remove or revert: {history_entry.get('artifact_path', 'unknown artifact')}",
+            "priority": "high" if reason == "regressed" else "medium",
+        },
+        "source": "auto-reflect-effectiveness",
+        "created": datetime.now().isoformat(),
+    }
+
+
 def deduplicate_proposals(new_proposals, existing_proposals):
     """Remove proposals that are too similar to existing ones."""
     existing_fingerprints = set()
@@ -803,6 +1001,11 @@ def format_markdown(proposals):
                 if content.get('issue'):
                     lines.append(f"   Issue: {content['issue']}")
                 lines.append(f"   Evidence: {content.get('evidence', '')}")
+            elif ptype == "revert":
+                lines.append(f"**{i}. [{priority.upper()}] REVERT** {content.get('original_summary', '')}")
+                lines.append(f"   Reason: {content.get('reason', '')} (delta: {content.get('delta_pct', '?')}%)")
+                lines.append(f"   Metric: {content.get('metric_type', '')} baseline={content.get('baseline_value')} current={content.get('current_value')}")
+                lines.append(f"   Action: {content.get('action', '')}")
             else:
                 lines.append(f"**{i}.** {summary or content.get('description', '')}")
 
@@ -839,7 +1042,11 @@ def main():
     # 5. Generate CLAUDE.md improvement proposals
     new_proposals.extend(generate_claude_md_proposals(observations, clusters))
 
-    # 6. Deduplicate against existing proposals
+    # 6. Check effectiveness of past approved proposals
+    revert_proposals = check_effectiveness(observations)
+    new_proposals.extend(revert_proposals)
+
+    # 7. Deduplicate against existing proposals
     new_proposals = deduplicate_proposals(new_proposals, existing)
 
     # 5. Filter out previously rejected proposals
