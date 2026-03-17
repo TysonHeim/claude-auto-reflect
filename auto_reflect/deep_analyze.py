@@ -212,8 +212,8 @@ def run_claude_analysis(prompt):
         # Unset CLAUDECODE env vars to avoid nested session detection
         env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
         result = subprocess.run(
-            ["claude", "-p", "--output-format", "json", prompt],
-            capture_output=True, text=True, timeout=120, env=env,
+            ["claude", "-p", "--output-format", "json"],
+            input=prompt, capture_output=True, text=True, timeout=120, env=env,
         )
         if result.returncode != 0:
             print(f"Claude CLI error: {result.stderr[:200]}", file=sys.stderr)

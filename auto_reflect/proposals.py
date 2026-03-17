@@ -14,6 +14,7 @@ Usage:
     python3 proposals.py --json                    # raw JSON (combinable with other flags)
 """
 
+import hashlib
 import json
 import os
 import subprocess
@@ -100,11 +101,9 @@ def update_proposal_status(proposal, new_status):
 
 
 def _fingerprint(proposal):
-    """Generate a content fingerprint for matching."""
-    return (
-        proposal.get("proposal", "")
-        or proposal.get("_summary", "")
-    ).lower().strip()[:100]
+    """Generate a SHA256 content fingerprint for matching."""
+    canonical = {k: v for k, v in proposal.items() if not k.startswith("_")}
+    return hashlib.sha256(json.dumps(canonical, sort_keys=True).encode()).hexdigest()[:16]
 
 
 def load_observations():

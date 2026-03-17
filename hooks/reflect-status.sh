@@ -6,12 +6,12 @@
 OBSERVATIONS="${AUTO_REFLECT_DIR:-$HOME/.claude/auto-reflect}/observations"
 
 # Get the 5 most recent observations by filename (sorted chronologically)
-FILES=$(ls -t "$OBSERVATIONS"/*.json 2>/dev/null | head -5)
-[ -z "$FILES" ] && echo "—" && exit 0
+mapfile -t FILES < <(ls -t "$OBSERVATIONS"/*.json 2>/dev/null | head -5)
+[ ${#FILES[@]} -eq 0 ] && echo "—" && exit 0
 
 # Extract scores
 SCORES=()
-for f in $FILES; do
+for f in "${FILES[@]}"; do
     S=$(jq -r '.score // empty' "$f" 2>/dev/null)
     [ -n "$S" ] && SCORES+=("$S")
 done

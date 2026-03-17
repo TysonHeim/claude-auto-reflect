@@ -54,7 +54,11 @@ def show_pending(limit: int = 10):
 
     shown = 0
     for f in files[:limit]:
-        proposals = json.loads(f.read_text())
+        try:
+            proposals = json.loads(f.read_text())
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: skipping {f.name}: {e}")
+            continue
         if not proposals:
             continue
         print(f"--- {f.name} ({len(proposals)} proposals) ---")

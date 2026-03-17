@@ -18,7 +18,7 @@ echo "[$(date -Iseconds)] Batch catch-up started (max: $MAX)" >> "$LOG"
 ANALYZED=0
 SKIPPED=0
 
-for JSONL in $(find "$SESSIONS_DIR" -name "*.jsonl" -not -name "agent-*" -not -path "*/subagents/*" -size +10k -mtime -7 -type f 2>/dev/null | sort -t/ -k1 | tail -n "$MAX"); do
+while IFS= read -r JSONL; do
     # Extract session ID prefix from filename for dedup check
     BASENAME=$(basename "$JSONL" .jsonl)
     SESSION_PREFIX="${BASENAME:0:8}"
@@ -31,7 +31,7 @@ for JSONL in $(find "$SESSIONS_DIR" -name "*.jsonl" -not -name "agent-*" -not -p
 
     # Analyze this session
     python3 -m auto_reflect.analyze_session "$JSONL" > /dev/null 2>&1 && ANALYZED=$((ANALYZED + 1)) || true
-done
+done < <(find "$SESSIONS_DIR" -name "*.jsonl" -not -name "agent-*" -not -path "*/subagents/*" -size +10k -mtime -7 -type f 2>/dev/null | sort -t/ -k1 | tail -n "$MAX")
 
 echo "[$(date -Iseconds)] Batch catch-up complete: $ANALYZED new, $SKIPPED already analyzed" >> "$LOG"
 

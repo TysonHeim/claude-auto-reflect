@@ -168,7 +168,10 @@ def main():
 
     if "--batch" in args:
         idx = args.index("--batch")
-        n = int(args[idx + 1]) if idx + 1 < len(args) else 5
+        if idx + 1 >= len(args):
+            print("Error: --batch requires a value (e.g. --batch 5)", file=sys.stderr)
+            sys.exit(1)
+        n = int(args[idx + 1])
 
         import glob as globmod
         sessions = sorted(
@@ -195,8 +198,11 @@ def main():
 
     if "--session" in args:
         idx = args.index("--session")
-        session_path = args[idx + 1] if idx + 1 < len(args) else None
-        session_args = [session_path] if session_path else ["--latest"]
+        if idx + 1 >= len(args):
+            print("Error: --session requires a value (e.g. --session /path/to/session.jsonl)", file=sys.stderr)
+            sys.exit(1)
+        session_path = args[idx + 1]
+        session_args = [session_path]
     else:
         session_args = ["--latest"]
 
