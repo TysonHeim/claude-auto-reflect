@@ -37,6 +37,20 @@ from auto_reflect.config import (
     CLAUDE_DIR,
     MEMORY_DIR,
     AGENTS_DIR,
+    CORRECTION_CLUSTER_SIMILARITY,
+    RULE_MATCH_SIMILARITY,
+    MIN_ERROR_CATEGORY_COUNT,
+    MIN_CORRECTION_CLUSTER_SESSIONS,
+    HIGH_PRIORITY_CLUSTER_SESSIONS,
+    MIN_AGENT_USES,
+    AGENT_ERROR_RATE_THRESHOLD,
+    MIN_SESSIONS_FOR_UNUSED_AGENTS,
+    MIN_RULE_VIOLATIONS,
+    MEMORY_STALENESS_DAYS,
+    PAST_DATE_THRESHOLD_DAYS,
+    EFFECTIVENESS_REVIEW_WINDOW,
+    EFFECTIVENESS_IMPROVEMENT_THRESHOLD,
+    EFFECTIVENESS_REGRESSION_THRESHOLD,
     ensure_dirs,
 )
 
@@ -191,7 +205,7 @@ def cluster_corrections(observations):
 
     # Simple greedy clustering: assign each correction to first matching cluster
     clusters = []
-    SIMILARITY_THRESHOLD = 0.35
+    SIMILARITY_THRESHOLD = CORRECTION_CLUSTER_SIMILARITY
 
     for c in corrections:
         matched = False
@@ -237,14 +251,14 @@ def analyze_error_messages(observations):
     findings = []
 
     for tool, messages in tool_errors.items():
-        if len(messages) < 3:
+        if len(messages) < MIN_ERROR_CATEGORY_COUNT:
             continue
 
         # Categorize error messages by pattern
         categories = categorize_errors(tool, messages)
 
         for category, info in categories.items():
-            if info["count"] >= 3:
+            if info["count"] >= MIN_ERROR_CATEGORY_COUNT:
                 pct = info["count"] / len(messages) * 100
                 findings.append({
                     "tool": tool,
@@ -548,10 +562,10 @@ def generate_agent_proposals(observations):
 
     # 1. Agents with high error rates (>30%, min 3 uses)
     for agent_type, stats in agent_stats.items():
-        if stats["total"] < 3:
+        if stats["total"] < MIN_AGENT_USES:
             continue
         error_rate = stats["errors"] / stats["total"]
-        if error_rate > 0.30:
+        if error_rate > AGENT_ERROR_RATE_THRESHOLD:
             samples = stats["error_messages"][:3]
             proposals.append({
                 "type": "agent_patch",
@@ -579,7 +593,7 @@ def generate_agent_proposals(observations):
         sessions_with_agent_data = sum(
             1 for obs in observations if "agents_used" in obs
         )
-        if sessions_with_agent_data >= 50:
+        if sessions_with_agent_data >= MIN_SESSIONS_FOR_UNUSED_AGENTS:
             never_used = available - used
             for agent_name in sorted(never_used):
                 proposals.append({
@@ -640,7 +654,7 @@ def generate_claude_md_proposals(observations, correction_clusters):
         item_count = len(cluster["items"])
 
         # Must appear in 3+ sessions to warrant a permanent rule
-        if session_count < 3:
+        if session_count < MIN_CORRECTION_CLUSTER_SESSIONS:
             continue
 
         representative = cluster["representative"]
@@ -666,7 +680,7 @@ def generate_claude_md_proposals(observations, correction_clusters):
                 "correction_text": representative[:300],
                 "suggested_rule": f"- Don't ... (derived from: \"{representative[:150]}\")",
                 "evidence": f"{item_count} occurrences across {session_count} sessions",
-                "priority": "high" if session_count >= 5 else "medium",
+                "priority": "high" if session_count >= HIGH_PRIORITY_CLUSTER_SESSIONS else "medium",
             },
             "source": "auto-reflect",
             "created": datetime.now().isoformat(),
@@ -682,7 +696,7 @@ def generate_claude_md_proposals(observations, correction_clusters):
                     rule_violations[rule] += 1
 
     for rule, count in rule_violations.items():
-        if count >= 3:
+        if count >= MIN_RULE_VIOLATIONS:
             proposals.append({
                 "type": "claude_md_patch",
                 "status": "pending_review",
@@ -710,12 +724,12 @@ def similarity_check(text1, text2):
     if not words1 or not words2:
         return False
     overlap = len(words1 & words2) / min(len(words1), len(words2))
-    return overlap >= 0.4
+    return overlap >= RULE_MATCH_SIMILARITY
 
 
 # --- Memory Cleanup ---
 
-MEMORY_STALENESS_DAYS = 30
+# MEMORY_STALENESS_DAYS imported from config
 
 
 def generate_memory_cleanup_proposals():
@@ -954,7 +968,7 @@ def _find_past_dates(text, now):
         date_str = match.group(1)
         try:
             date = datetime.strptime(date_str, "%Y-%m-%d")
-            if date < now - timedelta(days=14):
+            if date < now - timedelta(days=PAST_DATE_THRESHOLD_DAYS):
                 past_dates.append(date_str)
         except ValueError:
             continue
@@ -964,8 +978,8 @@ def _find_past_dates(text, now):
 
 # --- Effectiveness Tracking ---
 
-EFFECTIVENESS_IMPROVEMENT_THRESHOLD = 0.15  # 15% improvement to count as effective
-EFFECTIVENESS_REGRESSION_THRESHOLD = -0.10  # 10% worse = regression
+# EFFECTIVENESS thresholds imported from config
+
 
 
 def check_effectiveness(observations):
@@ -1077,7 +1091,7 @@ def remeasure_metric(baseline, observations):
         count = 0
         for obs in observations:
             for corr in obs.get("corrections", []):
-                if _jaccard(fingerprint.lower(), corr.lower()) >= 0.35:
+                if _jaccard(fingerprint.lower(), corr.lower()) >= CORRECTION_CLUSTER_SIMILARITY:
                     count += 1
         return count
 
@@ -1088,7 +1102,7 @@ def remeasure_metric(baseline, observations):
         count = 0
         for obs in observations:
             for corr in obs.get("corrections", []):
-                if _jaccard(match_text.lower(), corr.lower()) >= 0.4:
+                if _jaccard(match_text.lower(), corr.lower()) >= RULE_MATCH_SIMILARITY:
                     count += 1
         return count
 

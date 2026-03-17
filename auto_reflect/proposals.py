@@ -24,6 +24,9 @@ from auto_reflect.config import (
     HISTORY_FILE,
     EXPIRE_DAYS,
     CLAUDE_DIR,
+    CORRECTION_CLUSTER_SIMILARITY,
+    RULE_MATCH_SIMILARITY,
+    EFFECTIVENESS_REVIEW_WINDOW,
 )
 
 
@@ -98,9 +101,6 @@ def _fingerprint(proposal):
     ).lower().strip()[:100]
 
 
-EFFECTIVENESS_REVIEW_WINDOW = 30  # sessions before checking effectiveness
-
-
 def load_observations():
     """Load all observations sorted by time."""
     observations = []
@@ -165,7 +165,7 @@ def compute_baseline(proposal, observations):
             count = 0
             for obs in window:
                 for corr in obs.get("corrections", []):
-                    if _text_overlap(body.lower(), corr.lower()) >= 0.35:
+                    if _text_overlap(body.lower(), corr.lower()) >= CORRECTION_CLUSTER_SIMILARITY:
                         count += 1
             return {
                 "metric_type": "correction_cluster_count",
@@ -204,7 +204,7 @@ def compute_baseline(proposal, observations):
             count = 0
             for obs in window:
                 for corr in obs.get("corrections", []):
-                    if _text_overlap(match_text.lower(), corr.lower()) >= 0.4:
+                    if _text_overlap(match_text.lower(), corr.lower()) >= RULE_MATCH_SIMILARITY:
                         count += 1
             return {
                 "metric_type": "correction_match_count",
