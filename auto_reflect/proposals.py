@@ -24,8 +24,9 @@ from pathlib import Path
 IMPROVEMENTS_DIR = os.path.expanduser("~/.claude/auto-reflect/improvements")
 OBSERVATIONS_DIR = os.path.expanduser("~/.claude/auto-reflect/observations")
 HISTORY_FILE = os.path.expanduser("~/.claude/auto-reflect/proposal-history.json")
-MEMORY_DIR = os.path.expanduser(
-    "~/.claude/projects/-Users-tysonheim--claude/memory"
+MEMORY_DIR = os.environ.get(
+    "AUTO_REFLECT_MEMORY_DIR",
+    os.path.expanduser("~/.claude/projects/memory"),  # override with AUTO_REFLECT_MEMORY_DIR
 )
 CLAUDE_MD = os.path.expanduser("~/.claude/CLAUDE.md")
 AGENTS_DIR = os.path.expanduser("~/.claude/agents")
@@ -457,7 +458,7 @@ def _apply_via_claude(proposal):
             f"Full proposal: {proposal_text}\n\n"
             f"Apply this fix. If it targets a specific skill, find it under ~/.claude/skills/ "
             f"and make the improvement. If it's a general tool usage pattern, add a feedback "
-            f"memory to ~/.claude/projects/-Users-tysonheim--claude/memory/ and update MEMORY.md. "
+            f"memory to {MEMORY_DIR}/ and update MEMORY.md. "
             f"Be concise and make minimal targeted changes."
         )
     elif ptype == "agent_patch":
@@ -492,7 +493,7 @@ def _apply_via_claude(proposal):
             f"Investigate the root cause. Check relevant session observations in "
             f"~/.claude/auto-reflect/observations/ for patterns. "
             f"Write your findings as a feedback memory in "
-            f"~/.claude/projects/-Users-tysonheim--claude/memory/ and update MEMORY.md. "
+            f"{MEMORY_DIR}/ and update MEMORY.md. "
             f"Focus on actionable insights that will prevent the issue."
         )
     elif ptype == "memory_cleanup":
@@ -501,7 +502,7 @@ def _apply_via_claude(proposal):
         action_text = content.get("action", "")
         prompt = (
             f"Auto-reflect has flagged a memory file that needs fixing.\n\n"
-            f"File: ~/.claude/projects/-Users-tysonheim--claude/memory/{target}\n"
+            f"File: {MEMORY_DIR}/{target}\n"
             f"Issue: {issue}\n"
             f"Suggested action: {action_text}\n\n"
             f"Read the file, understand its content, and add proper frontmatter "
