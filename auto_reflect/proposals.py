@@ -350,6 +350,9 @@ def format_list(pending, show_json=False):
             delta = content.get("delta_pct", "?")
             lines.append(f"  **{i}.** [{priority.upper()}] REVERT: {content.get('original_summary', '')[:60]}{age}")
             lines.append(f"      Reason: {reason} (delta: {delta}%), artifact: {content.get('artifact_path', 'none')}")
+        elif ptype == "memory_cleanup":
+            lines.append(f"  **{i}.** [{priority.upper()}] memory_cleanup: {content.get('target', '')}{age}")
+            lines.append(f"      {content.get('issue', '')[:80]}")
         else:
             lines.append(f"  **{i}.** {ptype}: {json.dumps(content)[:80]}{age}")
 

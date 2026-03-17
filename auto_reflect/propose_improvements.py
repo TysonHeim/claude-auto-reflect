@@ -8,6 +8,7 @@ Takes pattern analysis + observation data and produces actionable changes:
 - Investigations (from score declines)
 - Agent patches (from agent error rates, unused agents)
 - CLAUDE.md patches (from recurring corrections, rule violations)
+- Memory cleanup (stale, redundant, or broken memory files)
 
 Key features:
 - Rejection cache: won't re-propose things you already rejected
@@ -34,6 +35,8 @@ from auto_reflect.config import (
     PROPOSAL_HISTORY,
     REJECTION_SUPPRESS_DAYS,
     CLAUDE_DIR,
+    MEMORY_DIR,
+    AGENTS_DIR,
     ensure_dirs,
 )
 
@@ -710,6 +713,255 @@ def similarity_check(text1, text2):
     return overlap >= 0.4
 
 
+# --- Memory Cleanup ---
+
+MEMORY_STALENESS_DAYS = 30
+
+
+def generate_memory_cleanup_proposals():
+    """Detect stale, redundant, or broken memory files.
+
+    Checks for:
+    1. Feedback memories that duplicate existing CLAUDE.md corrections
+    2. Memories with stale temporal references (past dates, old deadlines)
+    3. Missing frontmatter (untyped memories)
+    4. MEMORY.md index drift (broken links, unindexed files)
+    5. Project/reference memories older than MEMORY_STALENESS_DAYS
+
+    Requires AUTO_REFLECT_MEMORY_DIR to be set in config.
+    """
+    proposals = []
+
+    if not MEMORY_DIR or not os.path.isdir(MEMORY_DIR):
+        return proposals
+
+    claude_md = os.path.join(CLAUDE_DIR, "CLAUDE.md")
+
+    # Load all memory files
+    memory_files = {}
+    for f in Path(MEMORY_DIR).glob("*.md"):
+        if f.name == "MEMORY.md":
+            continue
+        try:
+            content = f.read_text()
+            meta = _parse_memory_frontmatter(content)
+            memory_files[f.name] = {
+                "path": str(f),
+                "content": content,
+                "meta": meta,
+                "mtime": datetime.fromtimestamp(f.stat().st_mtime),
+            }
+        except (IOError, OSError):
+            continue
+
+    # Load CLAUDE.md corrections for redundancy check
+    claude_md_rules = _load_claude_md_corrections(claude_md)
+
+    # Load MEMORY.md index for drift check
+    memory_index_refs = _parse_memory_index(MEMORY_DIR)
+
+    # 1. Feedback memories redundant with CLAUDE.md
+    for fname, mem in memory_files.items():
+        if mem["meta"].get("type") != "feedback":
+            continue
+        desc = mem["meta"].get("description", "").lower()
+        name = mem["meta"].get("name", "").lower()
+        check_text = desc or name
+        if not check_text:
+            continue
+        for rule in claude_md_rules:
+            if similarity_check(check_text, rule):
+                proposals.append({
+                    "type": "memory_cleanup",
+                    "status": "pending_review",
+                    "_summary": f"redundant memory: {fname} duplicates CLAUDE.md rule",
+                    "content": {
+                        "target": fname,
+                        "target_path": mem["path"],
+                        "issue": "Feedback memory duplicates an existing CLAUDE.md Corrections rule",
+                        "matching_rule": rule[:100],
+                        "action": f"Delete {fname} -- the CLAUDE.md rule already covers this",
+                        "priority": "low",
+                    },
+                    "source": "auto-reflect",
+                    "created": datetime.now().isoformat(),
+                })
+                break
+
+    # 2. Stale temporal references in project/reference memories
+    now = datetime.now()
+    for fname, mem in memory_files.items():
+        mem_type = mem["meta"].get("type", "")
+        if mem_type not in ("project", "reference"):
+            continue
+
+        stale_dates = _find_past_dates(mem["content"], now)
+        if stale_dates:
+            proposals.append({
+                "type": "memory_cleanup",
+                "status": "pending_review",
+                "_summary": f"stale dates in {fname}: {', '.join(stale_dates[:2])}",
+                "content": {
+                    "target": fname,
+                    "target_path": mem["path"],
+                    "issue": f"Memory contains past dates that may be outdated: {', '.join(stale_dates[:3])}",
+                    "action": f"Review {fname} -- update or delete if the information is no longer current",
+                    "priority": "low",
+                },
+                "source": "auto-reflect",
+                "created": datetime.now().isoformat(),
+            })
+
+        age_days = (now - mem["mtime"]).days
+        if age_days > MEMORY_STALENESS_DAYS:
+            proposals.append({
+                "type": "memory_cleanup",
+                "status": "pending_review",
+                "_summary": f"old {mem_type} memory: {fname} ({age_days}d old)",
+                "content": {
+                    "target": fname,
+                    "target_path": mem["path"],
+                    "issue": f"{mem_type.title()} memory is {age_days} days old -- may be outdated",
+                    "action": f"Review {fname} -- update if still relevant, delete if not",
+                    "priority": "low",
+                },
+                "source": "auto-reflect",
+                "created": datetime.now().isoformat(),
+            })
+
+    # 3. Missing frontmatter
+    for fname, mem in memory_files.items():
+        if not mem["meta"].get("type"):
+            proposals.append({
+                "type": "memory_cleanup",
+                "status": "pending_review",
+                "_summary": f"missing frontmatter: {fname}",
+                "content": {
+                    "target": fname,
+                    "target_path": mem["path"],
+                    "issue": f"Memory file '{fname}' has no type frontmatter (name/description/type required)",
+                    "action": f"Add frontmatter to {fname} or convert to a proper memory format",
+                    "priority": "low",
+                },
+                "source": "auto-reflect",
+                "created": datetime.now().isoformat(),
+            })
+
+    # 4. MEMORY.md index drift
+    indexed_files = set(memory_index_refs)
+    actual_files = set(memory_files.keys())
+
+    for fname in indexed_files - actual_files:
+        proposals.append({
+            "type": "memory_cleanup",
+            "status": "pending_review",
+            "_summary": f"broken link in MEMORY.md: {fname}",
+            "content": {
+                "target": "MEMORY.md",
+                "target_path": os.path.join(MEMORY_DIR, "MEMORY.md"),
+                "issue": f"MEMORY.md references '{fname}' but the file doesn't exist",
+                "action": "Remove the broken reference from MEMORY.md",
+                "priority": "medium",
+            },
+            "source": "auto-reflect",
+            "created": datetime.now().isoformat(),
+        })
+
+    for fname in actual_files - indexed_files:
+        proposals.append({
+            "type": "memory_cleanup",
+            "status": "pending_review",
+            "_summary": f"unindexed memory: {fname} not in MEMORY.md",
+            "content": {
+                "target": fname,
+                "target_path": memory_files[fname]["path"],
+                "issue": f"Memory file '{fname}' exists but is not referenced in MEMORY.md",
+                "action": f"Add {fname} to MEMORY.md index, or delete if orphaned",
+                "priority": "low",
+            },
+            "source": "auto-reflect",
+            "created": datetime.now().isoformat(),
+        })
+
+    return proposals
+
+
+def _parse_memory_frontmatter(content):
+    """Parse YAML-style frontmatter from a memory file."""
+    meta = {}
+    lines = content.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return meta
+
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if ":" in line:
+            key, _, val = line.partition(":")
+            meta[key.strip()] = val.strip()
+
+    return meta
+
+
+def _load_claude_md_corrections(claude_md_path):
+    """Load correction rules from CLAUDE.md as lowercase strings."""
+    rules = []
+    if not os.path.exists(claude_md_path):
+        return rules
+
+    try:
+        with open(claude_md_path) as f:
+            in_corrections = False
+            for line in f:
+                if "## Corrections" in line or "## corrections" in line:
+                    in_corrections = True
+                    continue
+                if in_corrections and line.startswith("##"):
+                    break
+                if in_corrections and line.strip().startswith("- "):
+                    rules.append(line.strip().lower()[:150])
+    except IOError:
+        pass
+
+    return rules
+
+
+def _parse_memory_index(memory_dir):
+    """Parse MEMORY.md to extract referenced filenames."""
+    index_path = os.path.join(memory_dir, "MEMORY.md")
+    refs = set()
+    if not os.path.exists(index_path):
+        return refs
+
+    try:
+        with open(index_path) as f:
+            for line in f:
+                matches = re.findall(r'\[.*?\]\(([^)]+\.md)\)', line)
+                for m in matches:
+                    refs.add(os.path.basename(m))
+    except IOError:
+        pass
+
+    return refs
+
+
+def _find_past_dates(text, now):
+    """Find date strings in text that are in the past."""
+    date_pattern = re.compile(r'\b(20\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]))\b')
+    past_dates = []
+
+    for match in date_pattern.finditer(text):
+        date_str = match.group(1)
+        try:
+            date = datetime.strptime(date_str, "%Y-%m-%d")
+            if date < now - timedelta(days=14):
+                past_dates.append(date_str)
+        except ValueError:
+            continue
+
+    return past_dates
+
+
 # --- Effectiveness Tracking ---
 
 EFFECTIVENESS_IMPROVEMENT_THRESHOLD = 0.15  # 15% improvement to count as effective
@@ -1006,6 +1258,10 @@ def format_markdown(proposals):
                 lines.append(f"   Reason: {content.get('reason', '')} (delta: {content.get('delta_pct', '?')}%)")
                 lines.append(f"   Metric: {content.get('metric_type', '')} baseline={content.get('baseline_value')} current={content.get('current_value')}")
                 lines.append(f"   Action: {content.get('action', '')}")
+            elif ptype == "memory_cleanup":
+                lines.append(f"**{i}. [{priority.upper()}]** {content.get('issue', '')}")
+                lines.append(f"   Target: {content.get('target', '')}")
+                lines.append(f"   Action: {content.get('action', '')}")
             else:
                 lines.append(f"**{i}.** {summary or content.get('description', '')}")
 
@@ -1046,7 +1302,10 @@ def main():
     revert_proposals = check_effectiveness(observations)
     new_proposals.extend(revert_proposals)
 
-    # 7. Deduplicate against existing proposals
+    # 7. Detect stale/redundant memory files
+    new_proposals.extend(generate_memory_cleanup_proposals())
+
+    # 8. Deduplicate against existing proposals
     new_proposals = deduplicate_proposals(new_proposals, existing)
 
     # 5. Filter out previously rejected proposals

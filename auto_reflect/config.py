@@ -36,6 +36,13 @@ HOOK_LOG = os.path.join(AUTO_REFLECT_DIR, "hook-log.txt")
 # Deep analysis
 DEEP_ANALYSIS_DIR = os.path.join(AUTO_REFLECT_DIR, "deep-analysis")
 
+# Memory directory (project-scoped — set this to your project's memory path)
+MEMORY_DIR = os.environ.get(
+    "AUTO_REFLECT_MEMORY_DIR",
+    "",  # No default — varies by project working directory
+)
+AGENTS_DIR = os.path.join(CLAUDE_DIR, "agents")
+
 # Eval gate paths (optional — only needed if you have skills with evals)
 SKILLS_DIR = os.environ.get(
     "AUTO_REFLECT_SKILLS_DIR",
