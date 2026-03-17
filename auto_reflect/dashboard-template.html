@@ -43,7 +43,11 @@
     padding: 2rem 1.5rem 3rem;
     min-height: 100vh;
   }
-  .container { max-width: 1200px; margin: 0 auto; }
+  .container { max-width: 1800px; margin: 0 auto; }
+  .main-layout { display: grid; grid-template-columns: 2fr 1fr; gap: 1.2rem; align-items: start; }
+  .left-col { display: flex; flex-direction: column; }
+  .right-col { display: flex; flex-direction: column; gap: 1.2rem; }
+  .right-col .card.scrollable { overflow-y: auto; flex: 1; }
 
   /* ── Header ── */
   .header { text-align: center; margin-bottom: 2rem; }
@@ -77,13 +81,21 @@
   .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.2rem; margin-bottom: 1.2rem; }
   .card {
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 1.3rem; box-shadow: var(--shadow);
+    padding: 1rem; box-shadow: var(--shadow);
   }
   .card.full { grid-column: 1 / -1; }
   .card-title {
     font-size: 0.82rem; font-weight: 800; margin-bottom: 0.8rem;
     display: flex; align-items: center; gap: 0.45rem;
+    cursor: pointer; user-select: none;
   }
+  .card-title::after {
+    content: ''; margin-left: auto; border: solid var(--text-muted); border-width: 0 2px 2px 0;
+    display: inline-block; padding: 3px; transform: rotate(45deg); transition: transform 0.2s;
+  }
+  .card.collapsed .card-title::after { transform: rotate(-135deg); }
+  .card.collapsed .card-body { display: none; }
+  .card.collapsed .card-title { margin-bottom: 0; }
   .badge {
     display: inline-flex; align-items: center; justify-content: center;
     width: 26px; height: 26px; border-radius: 9px; font-size: 0.75rem; font-weight: 800;
@@ -96,11 +108,11 @@
   .b-rose { background: var(--rose-dim); color: #e11d48; border: 1.5px solid var(--rose); }
 
   /* ── Charts ── */
-  .chart-wrap { position: relative; width: 100%; }
-  .chart-wrap svg { display: block; width: 100%; overflow: visible; }
+  .chart-wrap { position: relative; width: 100%; overflow: hidden; }
+  .chart-wrap svg { display: block; width: 100%; }
 
   /* Score trend */
-  .trend-chart { height: 180px; }
+  .trend-chart { }
   .trend-line { fill: none; stroke: var(--pink); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
   .trend-area { fill: url(#pinkGrad); opacity: 0.35; }
   .trend-dot { fill: var(--pink); r: 3.5; transition: r 0.15s; }
@@ -259,6 +271,9 @@
   .footer a:hover { text-decoration: underline; }
 
   /* Responsive */
+  @media (max-width: 1400px) {
+    .main-layout { grid-template-columns: 1fr; }
+  }
   @media (max-width: 900px) {
     .stats { grid-template-columns: repeat(3,1fr); }
     .grid-2, .grid-3 { grid-template-columns: 1fr; }
@@ -299,29 +314,34 @@
   <div class="stat"><div class="stat-val" id="statReviewed">0</div><div class="stat-lbl">Reviewed</div></div>
 </div>
 
+<div class="main-layout">
+<div class="left-col">
+
 <!-- Row 1: Score Trend + Distribution -->
 <div class="grid-2">
   <div class="card">
     <div class="card-title"><span class="badge b-pink">~</span> Score Trend (daily avg)</div>
-    <div class="chart-wrap trend-chart" id="trendChart"></div>
+    <div class="card-body"><div class="chart-wrap trend-chart" id="trendChart"></div></div>
   </div>
   <div class="card">
     <div class="card-title"><span class="badge b-lav">#</span> Score Distribution</div>
-    <div class="chart-wrap" id="histoChart" style="height:180px;"></div>
+    <div class="card-body"><div class="chart-wrap" id="histoChart"></div></div>
   </div>
 </div>
 
-<!-- Row 2: Tool Errors + Recent Sessions -->
+<!-- Row 2: Tool Errors + Misuse -->
 <div class="grid-2">
   <div class="card">
     <div class="card-title"><span class="badge b-rose">!</span> Tool Error Rates</div>
-    <div id="errorBars"></div>
+    <div class="card-body"><div id="errorBars"></div></div>
   </div>
   <div class="card">
     <div class="card-title"><span class="badge b-peach">~</span> Tool Misuse Patterns</div>
-    <div id="misuseBars"></div>
-    <div style="margin-top:0.8rem;padding:0.5rem 0.7rem;background:var(--surface2);border-radius:12px;border:1px dashed var(--border);font-size:0.72rem;color:var(--text-muted);">
-      Misuses = using Bash for grep/cat/find when dedicated tools exist
+    <div class="card-body">
+      <div id="misuseBars"></div>
+      <div style="margin-top:0.8rem;padding:0.5rem 0.7rem;background:var(--surface2);border-radius:12px;border:1px dashed var(--border);font-size:0.72rem;color:var(--text-muted);">
+        Misuses = using Bash for grep/cat/find when dedicated tools exist
+      </div>
     </div>
   </div>
 </div>
@@ -330,46 +350,58 @@
 <div class="grid-2">
   <div class="card">
     <div class="card-title"><span class="badge b-mint">S</span> Top Skills Used</div>
-    <div class="skill-pills" id="skillPills"></div>
+    <div class="card-body"><div class="skill-pills" id="skillPills"></div></div>
   </div>
   <div class="card">
     <div class="card-title"><span class="badge b-sky">A</span> Agent Usage</div>
-    <div id="agentBars"></div>
+    <div class="card-body"><div id="agentBars"></div></div>
   </div>
 </div>
 
-<!-- Row 4: Pending Review -->
-<div class="card" style="margin-bottom:1.2rem;">
+</div><!-- /left-col -->
+
+<div class="right-col">
+
+<!-- Pending Review -->
+<div class="card">
   <div class="card-title"><span class="badge b-peach">!</span> Pending Review <span id="pendingCount" style="font-size:0.65rem;font-weight:800;background:var(--peach-dim);color:#ea580c;border:1px solid var(--peach);padding:0.1rem 0.45rem;border-radius:99px;margin-left:0.3rem;"></span></div>
-  <div id="pendingProposals"></div>
-  <div id="noPending" style="display:none;font-size:0.8rem;color:var(--text-muted);font-weight:600;padding:0.8rem;text-align:center;background:var(--surface2);border-radius:12px;border:1px dashed var(--border);">All caught up -- nothing to review</div>
-  <div class="bulk-bar" id="bulkBar" style="display:none;">
-    <button class="btn btn-reject btn-bulk" onclick="bulkAction('reject-all')">Reject All</button>
-    <button class="btn btn-approve btn-bulk" onclick="bulkAction('approve-all')">Approve All</button>
+  <div class="card-body">
+    <div id="pendingProposals"></div>
+    <div id="noPending" style="display:none;font-size:0.8rem;color:var(--text-muted);font-weight:600;padding:0.8rem;text-align:center;background:var(--surface2);border-radius:12px;border:1px dashed var(--border);">All caught up -- nothing to review</div>
+    <div class="bulk-bar" id="bulkBar" style="display:none;">
+      <button class="btn btn-reject btn-bulk" onclick="bulkAction('reject-all')">Reject All</button>
+      <button class="btn btn-approve btn-bulk" onclick="bulkAction('approve-all')">Approve All</button>
+    </div>
   </div>
 </div>
+
+<!-- Reviewed (approved + rejected) -->
+<div class="card scrollable">
+  <div class="card-title"><span class="badge b-lav">H</span> Reviewed <span id="reviewedCount" style="font-size:0.65rem;font-weight:800;background:var(--blue-dim);color:#1d4ed8;border:1px solid var(--blue);padding:0.1rem 0.45rem;border-radius:99px;margin-left:0.3rem;"></span></div>
+  <div class="card-body"><div class="timeline" id="history"></div></div>
+</div>
+
+<!-- Recent Sessions -->
+<div class="card scrollable">
+  <div class="card-title"><span class="badge b-pink">R</span> Recent Sessions</div>
+  <div class="card-body">
+    <div style="overflow-x:auto;">
+      <table class="session-table" id="sessionsTable">
+        <thead><tr><th>Date</th><th>Score</th><th>Tools</th><th>Err</th><th>Mis</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</div><!-- /right-col -->
+</div><!-- /main-layout -->
 
 <div class="toast" id="toast"></div>
 
-<!-- Row 5: Reviewed (approved + rejected) -->
-<div class="card" style="margin-bottom:1.2rem;">
-  <div class="card-title"><span class="badge b-lav">H</span> Reviewed <span id="reviewedCount" style="font-size:0.65rem;font-weight:800;background:var(--blue-dim);color:#1d4ed8;border:1px solid var(--blue);padding:0.1rem 0.45rem;border-radius:99px;margin-left:0.3rem;"></span></div>
-  <div class="timeline" id="history"></div>
-</div>
-
-<!-- Row 5: Recent Sessions -->
-<div class="card" style="margin-bottom:1.2rem;">
-  <div class="card-title"><span class="badge b-pink">R</span> Recent Sessions</div>
-  <div style="overflow-x:auto;">
-    <table class="session-table" id="sessionsTable">
-      <thead><tr><th>Date</th><th>Score</th><th>Tools</th><th>Errors</th><th>Corrections</th><th>Misuses</th></tr></thead>
-      <tbody></tbody>
-    </table>
-  </div>
-</div>
-
 <div class="footer">
-  Built by Tyson Heim &middot; <a href="https://github.com/TysonHeim/claude-auto-reflect">github.com/TysonHeim/claude-auto-reflect</a></div>
+  Built by Tyson Heim &middot; <a href="https://github.com/TysonHeim/claude-auto-reflect">github.com/TysonHeim/claude-auto-reflect</a> &middot; Human-in-the-loop, always
+</div>
 
 </div>
 
@@ -647,11 +679,17 @@ async function bulkAction(action) {
       <td><span class="score-pill ${scoreClass(s.score)}">${s.score}</span></td>
       <td>${s.tools}</td>
       <td>${s.errors || '-'}</td>
-      <td>${s.corrections || '-'}</td>
       <td>${s.misuses || '-'}</td>
     </tr>`
   ).join('');
 })();
+
+// ── COLLAPSIBLE CARDS ──
+document.querySelectorAll('.card-title').forEach(title => {
+  title.addEventListener('click', () => {
+    title.closest('.card').classList.toggle('collapsed');
+  });
+});
 </script>
 </body>
 </html>
