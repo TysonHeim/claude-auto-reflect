@@ -16,7 +16,8 @@ from collections import Counter, defaultdict
 from datetime import datetime
 
 BASE = os.path.expanduser("~/.claude/auto-reflect")
-TEMPLATE = os.path.join(BASE, "dashboard-template.html")
+# Locate template relative to this file (works for both editable and installed packages)
+TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard-template.html")
 DEFAULT_OUTPUT = os.path.join(BASE, "dashboard.html")
 PLACEHOLDER = "/*__DATA_PLACEHOLDER__*/{}"
 

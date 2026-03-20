@@ -18,7 +18,6 @@ import webbrowser
 from urllib.parse import urlparse, parse_qs
 
 BASE = os.path.expanduser("~/.claude/auto-reflect")
-SCRIPTS = os.path.join(BASE, "scripts")
 DASHBOARD = os.path.join(BASE, "dashboard.html")
 PORT = 7700
 
@@ -26,7 +25,7 @@ PORT = 7700
 def regenerate_dashboard():
     """Regenerate dashboard HTML from live data."""
     subprocess.run(
-        [sys.executable, os.path.join(SCRIPTS, "generate_dashboard.py"), "--no-open"],
+        [sys.executable, "-m", "auto_reflect.generate_dashboard", "--no-open"],
         capture_output=True,
     )
 
@@ -36,7 +35,7 @@ def run_proposals_command(*args):
     # Longer timeout for approve (claude -p can take up to 2 min)
     timeout = 180 if any(a.startswith("--approve") for a in args) else 30
     result = subprocess.run(
-        [sys.executable, os.path.join(SCRIPTS, "proposals.py"), *args],
+        [sys.executable, "-m", "auto_reflect.proposals", *args],
         capture_output=True, text=True, timeout=timeout,
     )
     return result.stdout, result.stderr, result.returncode

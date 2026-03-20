@@ -14,6 +14,9 @@ requires-python = ">=3.8"
 [tool.setuptools.packages.find]
 include = ["auto_reflect*"]
 
+[tool.setuptools.package-data]
+auto_reflect = ["dashboard-template.html"]
+
 [project.scripts]
 auto-reflect = "auto_reflect.orchestrate:main"
 auto-reflect-analyze = "auto_reflect.analyze_session:main"

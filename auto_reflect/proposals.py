@@ -33,8 +33,8 @@ CLAUDE_MD = os.path.expanduser("~/.claude/CLAUDE.md")
 AGENTS_DIR = os.path.expanduser("~/.claude/agents")
 EXPIRE_DAYS = 7
 
-# Import shared thresholds — single source of truth in propose_improvements.py
-from propose_improvements import (
+# Import shared thresholds — single source of truth in config.py
+from auto_reflect.config import (
     CORRECTION_CLUSTER_SIMILARITY,
     RULE_MATCH_SIMILARITY,
     EFFECTIVENESS_REVIEW_WINDOW,
