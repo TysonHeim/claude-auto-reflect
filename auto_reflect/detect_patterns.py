@@ -14,7 +14,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from auto_reflect.config import OBSERVATIONS_DIR, PATTERNS_DIR, IMPROVEMENTS_DIR, ensure_dirs
+from auto_reflect.config import OBSERVATIONS_DIR, PATTERNS_DIR, ensure_dirs
 
 
 def load_observations():
@@ -291,24 +291,16 @@ def generate_improvement_proposals(all_patterns):
     return proposals
 
 
-def save_patterns(all_patterns, proposals=None):
-    """Save detected patterns and optionally proposals."""
+def save_patterns(all_patterns):
+    """Save detected patterns (proposals are handled by propose_improvements)."""
     ensure_dirs()
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
 
-    # Save patterns
     patterns_file = os.path.join(PATTERNS_DIR, f"{timestamp}_patterns.json")
     with open(patterns_file, "w") as f:
         json.dump(all_patterns, f, indent=2, default=str)
 
-    # Save proposals
-    proposals_file = None
-    if proposals:
-        proposals_file = os.path.join(IMPROVEMENTS_DIR, f"{timestamp}_proposals.json")
-        with open(proposals_file, "w") as f:
-            json.dump(proposals, f, indent=2, default=str)
-
-    return patterns_file, proposals_file
+    return patterns_file
 
 
 def format_markdown(all_patterns, proposals, observations):
@@ -358,7 +350,7 @@ def main():
     all_patterns.extend(detect_skill_gaps(observations))
 
     proposals = generate_improvement_proposals(all_patterns)
-    patterns_file, proposals_file = save_patterns(all_patterns, proposals)
+    patterns_file = save_patterns(all_patterns)
 
     if output_json:
         print(json.dumps({"patterns": all_patterns, "proposals": proposals}, indent=2, default=str))
@@ -366,8 +358,6 @@ def main():
         print(format_markdown(all_patterns, proposals, observations))
 
     print(f"\nPatterns saved: {patterns_file}", file=sys.stderr)
-    if proposals_file:
-        print(f"Proposals saved: {proposals_file}", file=sys.stderr)
 
 
 if __name__ == "__main__":
