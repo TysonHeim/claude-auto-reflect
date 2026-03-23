@@ -122,7 +122,7 @@ Opens at **http://localhost:7700** automatically.
 
 **Regenerate the dashboard manually:**
 ```bash
-python3 ~/.claude/auto-reflect/scripts/generate_dashboard.py
+python3 ~/.claude/auto-reflect/auto_reflect/generate_dashboard.py
 ```
 
 The server regenerates the dashboard on every page load, so it always reflects current data.
