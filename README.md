@@ -102,7 +102,7 @@ auto-reflect-proposals --history       # audit trail with effectiveness status
 A local web dashboard lets you review and approve proposals with one click, with live stats on session scores, tool errors, and skill usage.
 
 ```bash
-python3 ~/.claude/auto-reflect/scripts/dashboard_server.py
+python3 ~/.claude/auto-reflect/auto_reflect/dashboard_server.py
 ```
 
 Opens at **http://localhost:7700** automatically.
