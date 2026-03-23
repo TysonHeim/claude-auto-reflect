@@ -409,20 +409,24 @@
 // ── DATA ──
 const DATA = /*__DATA_PLACEHOLDER__*/{};
 
+// ── HELPERS ──
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML; }
+
 // ── SCORE TREND (SVG line chart) ──
 (function() {
   const el = document.getElementById('trendChart');
   const d = DATA.daily_scores;
+  if (!d || d.length === 0) { el.innerHTML = '<p style="color:#888;text-align:center;padding:2em">No session data yet</p>'; return; }
   const W = 500, H = 160, pad = {t:10,r:10,b:28,l:36};
   const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
   const minY = 60, maxY = 100;
 
-  const x = (i) => pad.l + (i / (d.length - 1)) * iw;
+  const x = (i) => d.length === 1 ? pad.l + iw / 2 : pad.l + (i / (d.length - 1)) * iw;
   const y = (v) => pad.t + ih - ((Math.min(Math.max(v, minY), maxY) - minY) / (maxY - minY)) * ih;
 
   let path = d.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p.avg).toFixed(1)}`).join(' ');
   let area = path + ` L${x(d.length-1).toFixed(1)},${(pad.t+ih).toFixed(1)} L${x(0).toFixed(1)},${(pad.t+ih).toFixed(1)} Z`;
-  let dots = d.map((p, i) => `<circle class="trend-dot tt" cx="${x(i).toFixed(1)}" cy="${y(p.avg).toFixed(1)}" data-tip="${p.date.slice(5)}: ${p.avg} (${p.count} sessions)"/>`).join('');
+  let dots = d.map((p, i) => `<circle class="trend-dot tt" cx="${x(i).toFixed(1)}" cy="${y(p.avg).toFixed(1)}" data-tip="${esc(p.date.slice(5))}: ${p.avg} (${p.count} sessions)"/>`).join('');
 
   // Grid lines
   let gridLines = '';
@@ -453,8 +457,9 @@ const DATA = /*__DATA_PLACEHOLDER__*/{};
   const el = document.getElementById('histoChart');
   const dist = DATA.score_distribution;
   const buckets = Object.entries(dist).map(([k,v]) => ({label: k + 's', val: v}));
+  if (buckets.length === 0) { el.innerHTML = '<p style="color:#888;text-align:center;padding:2em">No data</p>'; return; }
   const W = 500, H = 170, pad = {t:20,r:10,b:28,l:10};
-  const maxVal = Math.max(...buckets.map(b => b.val));
+  const maxVal = Math.max(...buckets.map(b => b.val)) || 1;
   const bw = (W - pad.l - pad.r) / buckets.length;
   const colors = ['#fda4af','#fdba74','#fcd34d','#60a5fa','#f472b6'];
 
@@ -474,11 +479,12 @@ const DATA = /*__DATA_PLACEHOLDER__*/{};
 // ── TOOL ERROR RATES ──
 (function() {
   const el = document.getElementById('errorBars');
-  const maxRate = Math.max(...DATA.tool_error_rates.map(t => t.rate));
+  if (!DATA.tool_error_rates || DATA.tool_error_rates.length === 0) { el.innerHTML = '<p style="color:#888">No tool error data</p>'; return; }
+  const maxRate = Math.max(...DATA.tool_error_rates.map(t => t.rate)) || 1;
   const colors = ['#fda4af','#f472b6','#60a5fa','#fdba74','#7dd3fc','#6ee7b7','#fbb6d0','#fcd34d'];
   el.innerHTML = DATA.tool_error_rates.map((t, i) =>
     `<div class="bar-row">
-      <span class="bar-name">${t.tool.replace('mcp__','')}</span>
+      <span class="bar-name">${esc(t.tool.replace('mcp__',''))}</span>
       <div class="bar-track"><div class="bar-fill" style="width:${(t.rate/maxRate*100).toFixed(0)}%;background:linear-gradient(90deg,${colors[i%8]},${colors[(i+1)%8]});"></div></div>
       <span class="bar-val">${t.rate}%</span>
     </div>`
@@ -488,10 +494,11 @@ const DATA = /*__DATA_PLACEHOLDER__*/{};
 // ── TOOL MISUSES ──
 (function() {
   const el = document.getElementById('misuseBars');
-  const maxVal = Math.max(...DATA.tool_misuses.map(m => m[1]));
+  if (!DATA.tool_misuses || DATA.tool_misuses.length === 0) { el.innerHTML = '<p style="color:#888">No misuses detected</p>'; return; }
+  const maxVal = Math.max(...DATA.tool_misuses.map(m => m[1])) || 1;
   el.innerHTML = DATA.tool_misuses.map(([name, count]) =>
     `<div class="misuse-row">
-      <span class="misuse-name">${name}</span>
+      <span class="misuse-name">${esc(name)}</span>
       <div class="misuse-bar"><div class="misuse-fill" style="width:${(count/maxVal*100).toFixed(0)}%;"></div></div>
       <span class="misuse-val">${count}</span>
     </div>`
@@ -501,19 +508,21 @@ const DATA = /*__DATA_PLACEHOLDER__*/{};
 // ── SKILLS ──
 (function() {
   const el = document.getElementById('skillPills');
+  if (!DATA.top_skills || DATA.top_skills.length === 0) { el.innerHTML = '<p style="color:#888">No skill usage yet</p>'; return; }
   el.innerHTML = DATA.top_skills.map(([name, count]) =>
-    `<div class="skill-pill">${name}<span class="count">${count}</span></div>`
+    `<div class="skill-pill">${esc(name)}<span class="count">${count}</span></div>`
   ).join('');
 })();
 
 // ── AGENTS ──
 (function() {
   const el = document.getElementById('agentBars');
-  const maxC = Math.max(...DATA.agent_usage.map(a => a.count));
+  if (!DATA.agent_usage || DATA.agent_usage.length === 0) { el.innerHTML = '<p style="color:#888">No agent usage yet</p>'; return; }
+  const maxC = Math.max(...DATA.agent_usage.map(a => a.count)) || 1;
   const colors = ['#60a5fa','#7dd3fc','#f472b6','#6ee7b7'];
   el.innerHTML = DATA.agent_usage.map((a, i) =>
     `<div class="bar-row">
-      <span class="bar-name">${a.type}</span>
+      <span class="bar-name">${esc(a.type)}</span>
       <div class="bar-track"><div class="bar-fill" style="width:${(a.count/maxC*100).toFixed(0)}%;background:${colors[i%4]};"></div></div>
       <span class="bar-val">${a.count}</span>
     </div>`
@@ -628,9 +637,9 @@ async function bulkAction(action) {
            </div>`
         : '';
       return `<div class="proposal">
-        <span class="pri pri-${p.priority}">${p.priority || 'med'}</span>
-        <span class="type-tag">${p.type || p.action}</span>
-        <span class="text">${p.proposal}</span>
+        <span class="pri pri-${esc(p.priority)}">${esc(p.priority) || 'med'}</span>
+        <span class="type-tag">${esc(p.type || p.action)}</span>
+        <span class="text">${esc(p.proposal)}</span>
         ${buttons}
       </div>`;
     }).join('');
@@ -656,13 +665,13 @@ async function bulkAction(action) {
       }
     }
     const detail = h.apply_result || h.apply_error || '';
-    const detailHtml = detail ? `<div class="tl-detail">${detail}</div>` : '';
+    const detailHtml = detail ? `<div class="tl-detail">${esc(detail)}</div>` : '';
     return `<div class="tl-item-wrap">
       <div class="tl-item">
-        <span class="tl-action tl-${h.action}">${h.action}</span>
+        <span class="tl-action tl-${esc(h.action)}">${esc(h.action)}</span>
         ${appliedBadge}
-        <span class="tl-date">${h.date.slice(5,10)}</span>
-        <span class="tl-summary">${h.summary}</span>
+        <span class="tl-date">${esc((h.date || '').slice(5,10))}</span>
+        <span class="tl-summary">${esc(h.summary)}</span>
       </div>
       ${detailHtml}
     </div>`;

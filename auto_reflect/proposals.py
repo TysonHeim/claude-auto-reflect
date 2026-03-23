@@ -22,23 +22,22 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-IMPROVEMENTS_DIR = os.path.expanduser("~/.claude/auto-reflect/improvements")
-OBSERVATIONS_DIR = os.path.expanduser("~/.claude/auto-reflect/observations")
-HISTORY_FILE = os.path.expanduser("~/.claude/auto-reflect/proposal-history.json")
-MEMORY_DIR = os.environ.get(
-    "AUTO_REFLECT_MEMORY_DIR",
-    os.path.expanduser("~/.claude/projects/memory"),  # override with AUTO_REFLECT_MEMORY_DIR
-)
-CLAUDE_MD = os.path.expanduser("~/.claude/CLAUDE.md")
-AGENTS_DIR = os.path.expanduser("~/.claude/agents")
-EXPIRE_DAYS = 7
-
-# Import shared thresholds — single source of truth in config.py
+# Import paths and thresholds — single source of truth in config.py
 from auto_reflect.config import (
+    IMPROVEMENTS_DIR,
+    OBSERVATIONS_DIR,
+    PROPOSAL_HISTORY as HISTORY_FILE,
+    MEMORY_DIR,
+    AGENTS_DIR,
+    SKILLS_DIR,
+    EXPIRE_DAYS,
     CORRECTION_CLUSTER_SIMILARITY,
     RULE_MATCH_SIMILARITY,
     EFFECTIVENESS_REVIEW_WINDOW,
 )
+
+CLAUDE_DIR = os.environ.get("CLAUDE_DIR", os.path.expanduser("~/.claude"))
+CLAUDE_MD = os.path.join(CLAUDE_DIR, "CLAUDE.md")
 
 
 def load_all_pending():
@@ -293,8 +292,8 @@ def infer_artifact_path(proposal):
     return None
 
 
-MEMORY_INDEX = os.path.join(MEMORY_DIR, "MEMORY.md")
-SKILLS_DIR = os.path.expanduser("~/.claude/skills")
+MEMORY_INDEX = os.path.join(MEMORY_DIR, "MEMORY.md") if MEMORY_DIR else ""
+# SKILLS_DIR already imported from config
 
 
 def apply_proposal(proposal):

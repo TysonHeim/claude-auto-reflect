@@ -33,9 +33,6 @@ PROPOSAL_HISTORY = os.path.join(AUTO_REFLECT_DIR, "proposal-history.json")
 HISTORY_FILE = PROPOSAL_HISTORY  # Alias for backward compatibility
 HOOK_LOG = os.path.join(AUTO_REFLECT_DIR, "hook-log.txt")
 
-# Deep analysis
-DEEP_ANALYSIS_DIR = os.path.join(AUTO_REFLECT_DIR, "deep-analysis")
-
 # Memory directory (project-scoped — set this to your project's memory path)
 MEMORY_DIR = os.environ.get(
     "AUTO_REFLECT_MEMORY_DIR",

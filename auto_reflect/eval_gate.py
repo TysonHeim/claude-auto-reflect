@@ -26,9 +26,6 @@ from auto_reflect.config import (
 )
 
 
-ensure_dirs()
-
-
 def find_skill_path(skill_name):
     """Find the actual skill directory (resolving symlinks)."""
     if not os.path.isdir(SKILLS_DIR):
@@ -261,6 +258,7 @@ def report():
 
 
 def main():
+    ensure_dirs()
     args = sys.argv[1:]
 
     if "--report" in args:

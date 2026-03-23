@@ -74,15 +74,20 @@ check_prereqs() {
 uninstall() {
     info "Uninstalling auto-reflect..."
 
-    # Remove hook from settings.json
+    # Remove hook from settings.json (atomic: write to temp, then mv)
     if [ -f "$SETTINGS" ] && command -v jq &>/dev/null; then
         if jq -e '.hooks.SessionEnd' "$SETTINGS" &>/dev/null; then
-            TMP=$(mktemp)
-            jq 'if .hooks.SessionEnd then .hooks.SessionEnd |= map(select(.hooks | all(.command | test("auto-reflect") | not))) else . end' "$SETTINGS" > "$TMP"
-            # Clean up empty arrays
-            jq 'if .hooks.SessionEnd == [] then del(.hooks.SessionEnd) else . end' "$TMP" > "$SETTINGS"
-            rm -f "$TMP"
-            ok "Removed SessionEnd hook from settings.json"
+            TMP1=$(mktemp) TMP2=$(mktemp)
+            trap 'rm -f "$TMP1" "$TMP2"' EXIT
+            if jq 'if .hooks.SessionEnd then .hooks.SessionEnd |= map(select(.hooks | all(.command | test("auto-reflect") | not))) else . end' "$SETTINGS" > "$TMP1" && \
+               jq 'if .hooks.SessionEnd == [] then del(.hooks.SessionEnd) else . end' "$TMP1" > "$TMP2"; then
+                mv "$TMP2" "$SETTINGS"
+                ok "Removed SessionEnd hook from settings.json"
+            else
+                warn "Failed to update settings.json — file unchanged"
+            fi
+            rm -f "$TMP1" "$TMP2"
+            trap - EXIT
         fi
     fi
 
@@ -92,10 +97,16 @@ uninstall() {
         ok "Removed /auto-reflect command"
     fi
 
-    # Remove cron entry
-    if crontab -l 2>/dev/null | grep -q "auto-reflect"; then
-        crontab -l 2>/dev/null | grep -v "auto-reflect" | crontab -
+    # Remove cron entry (match specific marker comment, not just any "auto-reflect")
+    if crontab -l 2>/dev/null | grep -q "# auto-reflect catch-up"; then
+        crontab -l 2>/dev/null | grep -v "# auto-reflect catch-up" | crontab -
         ok "Removed cron job"
+    fi
+
+    # Remove pip-installed package
+    if python3 -m pip show claude-auto-reflect &>/dev/null 2>&1; then
+        python3 -m pip uninstall -y claude-auto-reflect --quiet 2>/dev/null || true
+        ok "Removed pip package"
     fi
 
     echo ""
@@ -113,7 +124,7 @@ install_package() {
 
     # Install in development mode so scripts are importable
     cd "$REPO_DIR"
-    if pip3 install -e . --quiet 2>/dev/null; then
+    if python3 -m pip install -e . --quiet 2>/dev/null; then
         ok "Package installed (pip editable mode)"
     else
         # Fallback: add to PYTHONPATH
@@ -165,9 +176,10 @@ SETTINGS_EOF
         return
     fi
 
-    # Add the hook entry
+    # Add the hook entry (atomic: write to temp, then mv)
     HOOK_CMD="$REPO_DIR/hooks/auto-reflect.sh"
     TMP=$(mktemp)
+    trap 'rm -f "$TMP"' EXIT
     jq --arg cmd "$HOOK_CMD" '
         .hooks //= {} |
         .hooks.SessionEnd //= [] |
@@ -176,6 +188,7 @@ SETTINGS_EOF
             "hooks": [{"type": "command", "command": $cmd}]
         }]
     ' "$SETTINGS" > "$TMP" && mv "$TMP" "$SETTINGS"
+    trap - EXIT
 
     ok "SessionEnd hook installed → $HOOK_CMD"
 }
@@ -224,6 +237,11 @@ for arg in "$@"; do
             echo "  --with-cron   Also install cron job for batch catch-up"
             echo "  --uninstall   Remove hooks, commands, and cron entries"
             exit 0
+            ;;
+        *)
+            error "Unknown flag: $arg"
+            echo "Usage: ./install.sh [--with-cron] [--uninstall] [--help]"
+            exit 1
             ;;
     esac
 done

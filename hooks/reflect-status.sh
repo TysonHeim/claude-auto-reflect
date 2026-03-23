@@ -6,7 +6,9 @@
 OBSERVATIONS="${AUTO_REFLECT_DIR:-$HOME/.claude/auto-reflect}/observations"
 
 # Get the 5 most recent observations by filename (sorted chronologically)
-mapfile -t FILES < <(ls -t "$OBSERVATIONS"/*.json 2>/dev/null | head -5)
+# Uses while-read instead of mapfile for bash 3.2 compatibility (stock macOS)
+FILES=()
+while IFS= read -r f; do FILES+=("$f"); done < <(ls -t "$OBSERVATIONS"/*.json 2>/dev/null | head -5)
 [ ${#FILES[@]} -eq 0 ] && echo "—" && exit 0
 
 # Extract scores

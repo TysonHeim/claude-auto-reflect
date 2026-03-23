@@ -6,6 +6,9 @@
 
 set -euo pipefail
 
+# Ensure PATH includes common install locations (cron has minimal PATH)
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
+
 AR_DIR="${AUTO_REFLECT_DIR:-$HOME/.claude/auto-reflect}"
 SESSIONS_DIR="${AUTO_REFLECT_SESSIONS_DIR:-$HOME/.claude/projects}"
 OBSERVATIONS="$AR_DIR/observations"

@@ -17,7 +17,9 @@ import threading
 import webbrowser
 from urllib.parse import urlparse, parse_qs
 
-BASE = os.path.expanduser("~/.claude/auto-reflect")
+from auto_reflect.config import AUTO_REFLECT_DIR
+
+BASE = AUTO_REFLECT_DIR
 DASHBOARD = os.path.join(BASE, "dashboard.html")
 PORT = 7700
 
@@ -66,7 +68,6 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             stdout, _, _ = run_proposals_command("--list")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             try:
                 proposals = json.loads(stdout)
@@ -83,46 +84,10 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         body = self.rfile.read(content_length).decode() if content_length else ""
 
         if parsed.path == "/api/approve":
-            try:
-                data = json.loads(body)
-                fingerprint = data.get("fingerprint", "")
-                if not fingerprint:
-                    raise ValueError("Missing fingerprint in request body")
-                stdout, stderr, code = run_proposals_command("--approve-id", fingerprint)
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({
-                    "ok": code == 0,
-                    "output": stdout.strip(),
-                    "error": stderr.strip() if code != 0 else "",
-                }).encode())
-            except Exception as e:
-                self.send_response(500)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"ok": False, "error": str(e)}).encode())
+            self._handle_action(body, "--approve-id")
 
         elif parsed.path == "/api/reject":
-            try:
-                data = json.loads(body)
-                fingerprint = data.get("fingerprint", "")
-                if not fingerprint:
-                    raise ValueError("Missing fingerprint in request body")
-                stdout, stderr, code = run_proposals_command("--reject-id", fingerprint)
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({
-                    "ok": code == 0,
-                    "output": stdout.strip(),
-                    "error": stderr.strip() if code != 0 else "",
-                }).encode())
-            except Exception as e:
-                self.send_response(500)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"ok": False, "error": str(e)}).encode())
+            self._handle_action(body, "--reject-id")
 
         elif parsed.path == "/api/approve-all":
             # Approve all pending proposals by fingerprint (one call each, sequential)
@@ -162,25 +127,63 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
+    def _handle_action(self, body, flag):
+        """Handle single approve/reject by fingerprint."""
+        try:
+            data = json.loads(body)
+            fingerprint = data.get("fingerprint", "")
+            if not fingerprint:
+                raise ValueError("Missing fingerprint in request body")
+            stdout, stderr, code = run_proposals_command(flag, fingerprint)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "ok": code == 0,
+                "output": stdout.strip(),
+                "error": stderr.strip() if code != 0 else "",
+            }).encode())
+        except Exception as e:
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": str(e)}).encode())
+
     def do_OPTIONS(self):
+        """Handle CORS preflight — only allow same-origin (localhost)."""
         self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", "http://localhost:{0}".format(PORT))
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
 
 def main():
+    global PORT
     port = PORT
     args = sys.argv[1:]
     if "--port" in args:
         idx = args.index("--port")
-        port = int(args[idx + 1])
+        if idx + 1 >= len(args):
+            print("Error: --port requires a value", file=sys.stderr)
+            sys.exit(1)
+        try:
+            port = int(args[idx + 1])
+        except ValueError:
+            print(f"Error: invalid port number: {args[idx + 1]}", file=sys.stderr)
+            sys.exit(1)
+    PORT = port
 
     # Generate dashboard first
     regenerate_dashboard()
 
-    server = http.server.HTTPServer(("127.0.0.1", port), DashboardHandler)
+    try:
+        server = http.server.HTTPServer(("127.0.0.1", port), DashboardHandler)
+    except OSError as e:
+        print(f"Error: cannot start server on port {port}: {e}", file=sys.stderr)
+        print(f"Try: python3 -m auto_reflect.dashboard_server --port {port + 1}", file=sys.stderr)
+        sys.exit(1)
+
     url = f"http://localhost:{port}"
     print(f"Auto-Reflect Dashboard: {url}")
     print("Ctrl+C to stop\n")

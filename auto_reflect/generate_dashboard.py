@@ -7,24 +7,35 @@ Usage:
     python3 generate_dashboard.py --output /path/to/output.html
 """
 
+import hashlib
 import json
 import os
 import glob
 import sys
-import subprocess
+import webbrowser
 from collections import Counter, defaultdict
 from datetime import datetime
 
-BASE = os.path.expanduser("~/.claude/auto-reflect")
+from auto_reflect.config import (
+    AUTO_REFLECT_DIR, OBSERVATIONS_DIR, IMPROVEMENTS_DIR, PROPOSAL_HISTORY,
+)
+
+BASE = AUTO_REFLECT_DIR
 # Locate template relative to this file (works for both editable and installed packages)
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard-template.html")
 DEFAULT_OUTPUT = os.path.join(BASE, "dashboard.html")
 PLACEHOLDER = "/*__DATA_PLACEHOLDER__*/{}"
 
 
+def _fingerprint(proposal):
+    """SHA256 content fingerprint — must match proposals.py._fingerprint()."""
+    canonical = {k: v for k, v in proposal.items() if not k.startswith("_")}
+    return hashlib.sha256(json.dumps(canonical, sort_keys=True).encode()).hexdigest()[:16]
+
+
 def load_observations():
     obs = []
-    for f in sorted(glob.glob(os.path.join(BASE, "observations", "*.json"))):
+    for f in sorted(glob.glob(os.path.join(OBSERVATIONS_DIR, "*.json"))):
         try:
             with open(f) as fh:
                 obs.append(json.load(fh))
@@ -36,24 +47,19 @@ def load_observations():
 def load_all_pending_proposals():
     """Load all pending proposals across all improvement files, with fingerprint."""
     pending = []
-    for f in sorted(glob.glob(os.path.join(BASE, "improvements", "*.json"))):
+    for f in sorted(glob.glob(os.path.join(IMPROVEMENTS_DIR, "*.json"))):
         try:
             with open(f) as fh:
                 proposals = json.load(fh)
             for p in proposals:
                 if p.get("status") == "pending_review":
-                    # Compute content fingerprint for stable identification
-                    fp = (
-                        p.get("proposal", "")
-                        or p.get("_summary", "")
-                    ).lower().strip()[:100]
                     pending.append({
                         "proposal": p.get("proposal", p.get("_summary", ""))[:200],
                         "action": p.get("action", p.get("type", "")),
                         "type": p.get("type", ""),
                         "priority": p.get("content", {}).get("priority", p.get("priority", "")),
                         "status": "pending_review",
-                        "fingerprint": fp,
+                        "fingerprint": _fingerprint(p),
                         "source_file": os.path.basename(f),
                     })
         except (json.JSONDecodeError, OSError):
@@ -62,11 +68,10 @@ def load_all_pending_proposals():
 
 
 def load_proposal_history():
-    path = os.path.join(BASE, "proposal-history.json")
-    if not os.path.exists(path):
+    if not os.path.exists(PROPOSAL_HISTORY):
         return []
     try:
-        with open(path) as fh:
+        with open(PROPOSAL_HISTORY) as fh:
             return json.load(fh)
     except (json.JSONDecodeError, OSError):
         return []
@@ -230,7 +235,7 @@ def generate(output_path, open_browser=True):
     print(f"  Sessions: {s['total_sessions']} | Avg: {s['avg_score']} | Perfect: {s['perfect_sessions']} | Below70: {s['below_70']} | Pending: {s['pending_proposals']}")
 
     if open_browser:
-        subprocess.run(["open", output_path], check=False)
+        webbrowser.open(f"file://{os.path.abspath(output_path)}")
 
 
 if __name__ == "__main__":

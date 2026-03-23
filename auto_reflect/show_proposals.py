@@ -22,15 +22,19 @@ def show_history(limit: int = 10):
         print("No proposal history found.")
         return
 
-    with open(PROPOSAL_HISTORY) as f:
-        history = json.load(f)
+    try:
+        with open(PROPOSAL_HISTORY) as f:
+            history = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"Error reading proposal history: {e}")
+        return
 
     recent = history[-limit:]
 
     print(f"=== Recent Proposals ({len(recent)} of {len(history)} total) ===\n")
 
     for p in reversed(recent):
-        action = p["action"].upper()
+        action = p.get("action", "unknown").upper()
         marker = "+" if action == "APPROVED" else "-"
         date = p.get("date", "unknown")[:16].replace("T", " ")
         ptype = p.get("type", "unknown")
