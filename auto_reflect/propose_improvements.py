@@ -106,7 +106,11 @@ def load_existing_proposals():
 
 
 def load_rejection_cache():
-    """Load fingerprints of rejected proposals with their rejection dates."""
+    """Load fingerprints of rejected/approved proposals to prevent re-generation.
+
+    Handles both old format (action/summary) and new format (status/fingerprint).
+    Also scans improvement files for already-reviewed proposals.
+    """
     if not os.path.exists(PROPOSAL_HISTORY):
         return {}
 
@@ -120,19 +124,37 @@ def load_rejection_cache():
     cutoff = datetime.now() - timedelta(days=REJECTION_SUPPRESS_DAYS)
 
     for entry in history:
-        if entry.get("action") != "rejected":
+        is_reviewed = (entry.get("action") in ("rejected", "approved")
+                       or entry.get("status") in ("rejected", "approved"))
+        if not is_reviewed:
             continue
-        # Extract fingerprint from summary
-        fp = entry.get("summary", "").lower().strip()[:100]
-        # Check if rejection is still within suppression window
         date_str = entry.get("date", "")
         try:
-            rejection_date = datetime.fromisoformat(date_str)
-            if rejection_date > cutoff:
-                cache[fp] = rejection_date.isoformat()
+            review_date = datetime.fromisoformat(date_str)
+            if review_date <= cutoff:
+                continue
         except (ValueError, TypeError):
-            # If we can't parse date, suppress anyway (conservative)
-            cache[fp] = "unknown"
+            pass
+
+        for key in ("fingerprint", "summary"):
+            fp = entry.get(key, "").lower().strip()[:100]
+            if fp:
+                cache[fp] = date_str or "unknown"
+
+    # Also scan improvement files for already-reviewed proposals
+    if os.path.isdir(IMPROVEMENTS_DIR):
+        for f in Path(IMPROVEMENTS_DIR).glob("*_proposals.json"):
+            try:
+                with open(f) as fh:
+                    data = json.load(fh)
+                    items = data if isinstance(data, list) else [data]
+                    for p in items:
+                        if p.get("status") in ("rejected", "approved"):
+                            fp = p.get("_summary", "").lower().strip()[:100]
+                            if fp:
+                                cache[fp] = p.get("created", "unknown")
+            except (json.JSONDecodeError, IOError):
+                continue
 
     return cache
 
