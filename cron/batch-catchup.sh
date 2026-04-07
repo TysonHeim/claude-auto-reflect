@@ -38,10 +38,15 @@ done < <(find "$SESSIONS_DIR" -name "*.jsonl" -not -name "agent-*" -not -path "*
 
 echo "[$(date -Iseconds)] Batch catch-up complete: $ANALYZED new, $SKIPPED already analyzed" >> "$LOG"
 
-# Run pattern detection if we analyzed anything new
-if [ "$ANALYZED" -gt 0 ]; then
+# Run pattern detection + proposal generation if we have enough data
+OBS_COUNT=$(find "$OBSERVATIONS" -name "*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
+if [ "$OBS_COUNT" -ge 10 ]; then
     python3 -m auto_reflect.detect_patterns > /dev/null 2>&1 || true
     echo "[$(date -Iseconds)] Pattern detection refreshed" >> "$LOG"
+
+    # Generate proposals from accumulated patterns
+    python3 -m auto_reflect.propose_improvements > /dev/null 2>&1 || true
+    echo "[$(date -Iseconds)] Proposal generation complete" >> "$LOG"
 fi
 
 # Expire stale proposals (>7 days without review = auto-rejected)

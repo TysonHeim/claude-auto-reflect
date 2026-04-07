@@ -81,7 +81,12 @@ def load_all_observations():
 
 
 def load_existing_proposals():
-    """Load all existing proposals to avoid duplicates."""
+    """Load pending_review proposals to avoid duplicating active proposals.
+
+    Only blocks against proposals still awaiting review. Approved/rejected/expired
+    proposals are handled separately by the rejection cache and effectiveness checks.
+    Old-format proposals without a status field are ignored (legacy data).
+    """
     proposals = []
     if not os.path.isdir(IMPROVEMENTS_DIR):
         return proposals
@@ -90,8 +95,10 @@ def load_existing_proposals():
             with open(f) as fh:
                 data = json.load(fh)
                 if isinstance(data, list):
-                    proposals.extend(data)
-                elif isinstance(data, dict):
+                    for p in data:
+                        if p.get("status") == "pending_review":
+                            proposals.append(p)
+                elif isinstance(data, dict) and data.get("status") == "pending_review":
                     proposals.append(data)
         except (json.JSONDecodeError, IOError):
             continue
