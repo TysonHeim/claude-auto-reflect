@@ -171,13 +171,17 @@ def detect_retry_patterns(observations):
     return patterns
 
 
-def detect_score_trends(observations):
-    """Detect if scores are trending up or down.
+def detect_score_trends(observations, window=40):
+    """Detect if scores are trending up or down using a sliding peer window.
 
-    Sort by start_time (not file order) and compare recent 20% vs earlier 80%.
-    Requires at least 20 observations for statistical relevance.
+    Compares the most recent `window` sessions against the `window` immediately
+    preceding them — NOT against all history. This prevents stale baselines
+    from long-past workflow eras (older sessions scored on a different tool
+    mix, scoring model, or user workload) from dominating the comparison.
+
+    Requires at least 2*window observations for a meaningful comparison.
     """
-    if len(observations) < 20:
+    if len(observations) < window * 2:
         return []
 
     sorted_obs = sorted(
@@ -186,9 +190,8 @@ def detect_score_trends(observations):
     )
     scores = [obs.get("score", 0) for obs in sorted_obs]
 
-    split = max(len(scores) * 4 // 5, 1)
-    earlier = scores[:split]
-    recent = scores[split:]
+    recent = scores[-window:]
+    earlier = scores[-2 * window:-window]
 
     if not recent or not earlier:
         return []

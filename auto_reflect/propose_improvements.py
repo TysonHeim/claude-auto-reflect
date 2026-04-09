@@ -141,7 +141,10 @@ def load_rejection_cache():
             if fp:
                 cache[fp] = date_str or "unknown"
 
-    # Also scan improvement files for already-reviewed proposals
+    # Also scan improvement files for already-reviewed proposals.
+    # Index by BOTH the drifting _summary (legacy matches) AND the stable
+    # (type, target) dedupe fingerprint so rejections catch near-duplicates
+    # that differ only in volatile values (counts, percentages, floats).
     if os.path.isdir(IMPROVEMENTS_DIR):
         for f in Path(IMPROVEMENTS_DIR).glob("*_proposals.json"):
             try:
@@ -150,9 +153,12 @@ def load_rejection_cache():
                     items = data if isinstance(data, list) else [data]
                     for p in items:
                         if p.get("status") in ("rejected", "approved"):
-                            fp = p.get("_summary", "").lower().strip()[:100]
-                            if fp:
-                                cache[fp] = p.get("created", "unknown")
+                            fp_summary = p.get("_summary", "").lower().strip()[:100]
+                            if fp_summary:
+                                cache[fp_summary] = p.get("created", "unknown")
+                            fp_dedupe = _dedupe_fingerprint(p)
+                            if fp_dedupe:
+                                cache[fp_dedupe] = p.get("created", "unknown")
             except (json.JSONDecodeError, IOError):
                 continue
 
@@ -161,8 +167,14 @@ def load_rejection_cache():
 
 def is_rejected(proposal, rejection_cache):
     """Check if a proposal matches a previously rejected fingerprint."""
+    # Prefer the stable (type, target) dedupe fingerprint — catches near-matches
+    # that differ only in volatile values (session counts, score deltas, etc.)
+    stable_fp = _dedupe_fingerprint(proposal)
+    if stable_fp and stable_fp in rejection_cache:
+        return True
+
     content = proposal.get("content", {})
-    # Build multiple fingerprint variants to catch near-matches
+    # Legacy text-content candidates for older rejection records
     candidates = [
         content.get("body", ""),
         content.get("issue", ""),
@@ -1203,29 +1215,38 @@ def _make_revert_proposal(history_entry, current_value, delta_pct, reason):
     }
 
 
+def _dedupe_fingerprint(proposal):
+    """Build a stable fingerprint for dedupe.
+
+    Keyed by (type, target) when `target` exists — this is the normalized
+    subject of the proposal and doesn't drift with volatile numeric values
+    (e.g. score-decline investigations all share target "Session quality trend"
+    even when the score changes from 77.8 to 78.1 between runs).
+
+    Falls back to (type, body|issue|query) for proposals without a target.
+    """
+    content = proposal.get("content") or {}
+    ptype = proposal.get("type", "unknown")
+    target = (content.get("target") or "").lower().strip()
+    if target:
+        return f"{ptype}::target::{target}"[:200]
+    fallback = (
+        content.get("body", "")
+        or content.get("issue", "")
+        or content.get("query", "")
+    ).lower().strip()[:100]
+    return f"{ptype}::{fallback}" if fallback else ""
+
+
 def deduplicate_proposals(new_proposals, existing_proposals):
     """Remove proposals that are too similar to existing ones."""
-    existing_fingerprints = set()
-    for p in existing_proposals:
-        content = p.get("content", {})
-        fp = (
-            content.get("body", "")
-            or content.get("issue", "")
-            or content.get("query", "")
-            or content.get("target", "")
-        ).lower().strip()[:100]
-        if fp:
-            existing_fingerprints.add(fp)
+    existing_fingerprints = {
+        fp for fp in (_dedupe_fingerprint(p) for p in existing_proposals) if fp
+    }
 
     unique = []
     for p in new_proposals:
-        content = p.get("content", {})
-        fp = (
-            content.get("body", "")
-            or content.get("issue", "")
-            or content.get("query", "")
-            or content.get("target", "")
-        ).lower().strip()[:100]
+        fp = _dedupe_fingerprint(p)
         if fp and fp not in existing_fingerprints:
             unique.append(p)
             existing_fingerprints.add(fp)

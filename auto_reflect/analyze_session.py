@@ -292,6 +292,44 @@ def detect_tool_misuse(tool_pairs):
     return misuses
 
 
+_BENIGN_ERROR_PATTERNS = [
+    # Permission system working as designed — denied files/dirs aren't mistakes
+    (r"Permission .* denied", None),
+    (r"is in a directory that is denied by your permission settings", None),
+    (r"The user doesn't want to proceed with this tool use", None),
+    # Parallel-session git lock collision — expected when running multi-Claude
+    (r"Unable to create .*\.git/index\.lock.*File exists", "Bash"),
+    (r"Another git process seems to be running", "Bash"),
+    # Read affordances: the tool teaches you how to retry — not a failure
+    (r"File content .* exceeds maximum allowed (tokens|size)", "Read"),
+    (r"cannot read binary files", "Read"),
+    # PDF large-doc affordance: same category as above
+    (r"exceeds maximum allowed pages", "Read"),
+]
+
+
+def is_benign_error(tool_name, error_message):
+    """Return True if this error is an expected system behavior, not a mistake.
+
+    Benign errors are:
+    - Permission denials on intentionally-blocked files (.env, etc.)
+    - User cancellations (the user changed their mind — not Claude's fault)
+    - Git index.lock collisions (expected when running parallel Claude sessions)
+    - Read token/size/binary affordances (the tool tells you how to retry)
+
+    These errors drag the session score down without reflecting actual mistakes.
+    """
+    if not error_message:
+        return False
+    msg = str(error_message)
+    for pattern, scoped_tool in _BENIGN_ERROR_PATTERNS:
+        if scoped_tool and tool_name != scoped_tool:
+            continue
+        if re.search(pattern, msg, re.IGNORECASE):
+            return True
+    return False
+
+
 def compute_score(metrics):
     """Compute a 0-100 performance score.
 
@@ -299,12 +337,18 @@ def compute_score(metrics):
     - A normal session with a few exploratory errors: ~90
     - A session with real problems (corrections, many retries): ~60-70
     - A catastrophic session: <50
+
+    Benign errors (permission denials, parallel-session git locks, Read
+    affordances) are excluded from the error-rate penalty — they reflect
+    system state, not mistakes.
     """
     score = 100
 
-    # Penalize errors — scale by error rate, not just count
+    # Penalize errors — scale by error rate, not just count.
+    # Use `real_error_count` when available (excludes benign errors).
     tool_count = max(metrics["tool_call_count"], 1)
-    error_rate = metrics["error_count"] / tool_count
+    real_errors = metrics.get("real_error_count", metrics["error_count"])
+    error_rate = real_errors / tool_count
     score -= min(error_rate * 100, 30)  # Up to -30 for high error rate
 
     # Penalize corrections (-7 each, max -35)
@@ -337,19 +381,27 @@ def analyze(path):
     tool_counts = Counter(tp["name"] for tp in tool_pairs)
     error_tools = Counter(tp["name"] for tp in tool_pairs if tp["is_error"])
 
-    # Capture actual error messages (truncated) for smarter proposal generation
+    # Capture actual error messages (truncated) for smarter proposal generation,
+    # and classify each error as real vs. benign (expected system behavior).
     error_messages = defaultdict(list)
+    real_error_count = 0
+    benign_error_count = 0
     for tp in tool_pairs:
-        if tp["is_error"]:
-            result = tp.get("result_content", "")
-            if isinstance(result, list):
-                result = " ".join(
-                    b.get("text", "") if isinstance(b, dict) else str(b)
-                    for b in result
-                )
-            msg = str(result).strip()[:300]
-            if msg:
-                error_messages[tp["name"]].append(msg)
+        if not tp["is_error"]:
+            continue
+        result = tp.get("result_content", "")
+        if isinstance(result, list):
+            result = " ".join(
+                b.get("text", "") if isinstance(b, dict) else str(b)
+                for b in result
+            )
+        msg = str(result).strip()[:300]
+        if msg:
+            error_messages[tp["name"]].append(msg)
+        if is_benign_error(tp["name"], msg):
+            benign_error_count += 1
+        else:
+            real_error_count += 1
 
     # Message counts
     user_msgs = [m for m in messages if m["role"] == "user"]
@@ -379,6 +431,8 @@ def analyze(path):
         "total_turns": len(user_msgs),
         "tool_call_count": len(tool_pairs),
         "error_count": sum(1 for tp in tool_pairs if tp["is_error"]),
+        "real_error_count": real_error_count,
+        "benign_error_count": benign_error_count,
         "correction_count": len(corrections),
         "retry_count": len(retries),
         "tool_misuse_count": len(tool_misuses),

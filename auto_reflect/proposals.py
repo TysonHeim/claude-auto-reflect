@@ -817,6 +817,28 @@ def main():
         print(f"Rejected all {len(pending)} pending proposals.")
         return
 
+    # Reject all pending proposals of a given type (e.g. --reject-type investigation)
+    for i, a in enumerate(args):
+        if a == "--reject-type" and i + 1 < len(args):
+            target_type = args[i + 1]
+            pending = load_all_pending()
+            matched = [p for p in pending if p.get("type") == target_type]
+            if not matched:
+                print(f"No pending proposals of type {target_type!r}.")
+                return
+            history = load_history()
+            for p in matched:
+                update_proposal_status(p, "rejected")
+                history.append({
+                    "action": "rejected",
+                    "type": p.get("type"),
+                    "summary": _fingerprint(p)[:60],
+                    "date": datetime.now().isoformat(),
+                })
+            save_history(history)
+            print(f"Rejected {len(matched)} pending proposal(s) of type {target_type!r}.")
+            return
+
     # Approve or reject by stable content fingerprint (used by dashboard — avoids positional index mismatch)
     for i, a in enumerate(args):
         if a in ("--approve-id", "--reject-id") and i + 1 < len(args):
@@ -849,7 +871,7 @@ def main():
             indices = parse_indices(args[i + 1])
 
     if not action or not indices:
-        print("Usage: proposals.py --approve 1,3 | --approve-id <fp> | --reject 2,4 | --reject-id <fp> | --list | --reject-all | --expire")
+        print("Usage: proposals.py --approve 1,3 | --approve-id <fp> | --reject 2,4 | --reject-id <fp> | --reject-type <type> | --list | --reject-all | --expire")
         return
 
     pending = load_all_pending()

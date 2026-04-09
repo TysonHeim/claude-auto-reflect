@@ -57,24 +57,37 @@ def show_pending(limit: int = 10):
         return
 
     shown = 0
-    for f in files[:limit]:
+    for f in files:
+        if shown >= limit:
+            break
         try:
             proposals = json.loads(f.read_text())
         except (json.JSONDecodeError, IOError) as e:
             print(f"Warning: skipping {f.name}: {e}")
             continue
-        if not proposals:
+        pending = [p for p in proposals if p.get("status", "pending_review") == "pending_review"]
+        if not pending:
             continue
-        print(f"--- {f.name} ({len(proposals)} proposals) ---")
-        for p in proposals:
-            summary = p.get("summary", p.get("issue", "no summary"))
-            ptype = p.get("type", p.get("priority", "unknown"))
+        print(f"--- {f.name} ({len(pending)} pending) ---")
+        for p in pending:
+            content = p.get("content") or {}
+            summary = (
+                p.get("summary")
+                or p.get("_summary")
+                or content.get("issue")
+                or content.get("target")
+                or "no summary"
+            )
+            ptype = p.get("type", content.get("priority", "unknown"))
             print(f"  - [{ptype}] {summary}")
+            suggestion = content.get("suggestion")
+            if suggestion:
+                print(f"      -> {suggestion}")
         print()
         shown += 1
 
     if not shown:
-        print("No proposal files with content.")
+        print("No pending proposals.")
 
 
 def main():
