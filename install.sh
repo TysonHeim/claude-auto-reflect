@@ -74,7 +74,15 @@ uninstall() {
         if jq -e '.hooks.SessionEnd' "$SETTINGS" &>/dev/null; then
             TMP1=$(mktemp) TMP2=$(mktemp)
             trap 'rm -f "$TMP1" "$TMP2"' EXIT
-            if jq 'if .hooks.SessionEnd then .hooks.SessionEnd |= map(select(.hooks | all(.command | test("auto-reflect") | not))) else . end' "$SETTINGS" > "$TMP1" && \
+            # Drop ONLY auto-reflect hooks within each block (preserves siblings
+            # like wip-lanes); then drop blocks that became empty; then drop the
+            # SessionEnd key if no blocks remain.
+            if jq '
+                if .hooks.SessionEnd then
+                    .hooks.SessionEnd |= map(.hooks |= map(select(.command | test("auto-reflect") | not)))
+                    | .hooks.SessionEnd |= map(select(.hooks | length > 0))
+                else . end
+            ' "$SETTINGS" > "$TMP1" && \
                jq 'if .hooks.SessionEnd == [] then del(.hooks.SessionEnd) else . end' "$TMP1" > "$TMP2"; then
                 mv "$TMP2" "$SETTINGS"
                 ok "Removed SessionEnd hook from settings.json"
@@ -91,10 +99,34 @@ uninstall() {
         ok "Removed /auto-reflect command"
     fi
 
+    # Remove pip package and its editable-install artifacts. `pip install -e .`
+    # leaves a dist-info, an __editable__*.pth, and a *_finder.py file in
+    # site-packages, plus an egg-info inside the repo. `pip uninstall` doesn't
+    # clean any of these reliably, so we do it explicitly.
     if python3 -m pip show claude-auto-reflect &>/dev/null 2>&1; then
         python3 -m pip uninstall -y claude-auto-reflect --quiet 2>/dev/null || true
-        ok "Removed pip package"
     fi
+    SITE_PACKAGES=$(python3 -c "import sysconfig; print(sysconfig.get_paths()['purelib'])" 2>/dev/null || echo "")
+    if [ -n "$SITE_PACKAGES" ] && [ -d "$SITE_PACKAGES" ]; then
+        rm -rf "$SITE_PACKAGES"/claude_auto_reflect-*.dist-info 2>/dev/null || true
+        rm -f  "$SITE_PACKAGES"/__editable__.claude_auto_reflect-*.pth 2>/dev/null || true
+        rm -f  "$SITE_PACKAGES"/__editable___claude_auto_reflect_*_finder.py 2>/dev/null || true
+        rm -rf "$SITE_PACKAGES"/__pycache__/__editable___claude_auto_reflect_*.pyc 2>/dev/null || true
+    fi
+    rm -rf "$REPO_DIR/claude_auto_reflect.egg-info" 2>/dev/null || true
+    ok "Removed pip package + editable-install artifacts"
+
+    # Remove PYTHONPATH lines added by older installs to the user's shell rc.
+    # Matches both the current repo path and any historical claude-auto-reflect
+    # / treasury-dev/auto-reflect locations.
+    for SHELL_RC in "$HOME/.zshrc" "$HOME/.bashrc"; do
+        if [ -f "$SHELL_RC" ] && grep -qE 'PYTHONPATH=.*(claude-auto-reflect|treasury-dev/auto-reflect)' "$SHELL_RC" 2>/dev/null; then
+            TMP=$(mktemp)
+            grep -vE '^# Auto-reflect for Claude Code$|PYTHONPATH=.*(claude-auto-reflect|treasury-dev/auto-reflect)' "$SHELL_RC" > "$TMP"
+            mv "$TMP" "$SHELL_RC"
+            ok "Cleaned PYTHONPATH lines from $SHELL_RC"
+        fi
+    done
 
     echo ""
     warn "Data directories preserved at $AR_DIR"
