@@ -2,9 +2,8 @@
 # Install auto-reflect for Claude Code.
 #
 # Usage:
-#   ./install.sh              # interactive install
-#   ./install.sh --with-cron  # also set up cron job
-#   ./install.sh --uninstall  # remove everything
+#   ./install.sh              # install
+#   ./install.sh --uninstall  # remove
 
 set -euo pipefail
 
@@ -45,10 +44,7 @@ check_prereqs() {
     fi
 
     if ! command -v jq &>/dev/null; then
-        error "jq not found. Install it:"
-        echo "    macOS:  brew install jq"
-        echo "    Ubuntu: sudo apt install jq"
-        echo "    Fedora: sudo dnf install jq"
+        error "jq not found. Install it (brew install jq / apt install jq)."
         missing=1
     else
         ok "jq $(jq --version 2>/dev/null || echo '(version unknown)')"
@@ -56,7 +52,6 @@ check_prereqs() {
 
     if [ ! -d "$CLAUDE_DIR" ]; then
         error "Claude Code config directory not found at $CLAUDE_DIR"
-        echo "    Install Claude Code first: https://docs.anthropic.com/en/docs/claude-code"
         missing=1
     else
         ok "Claude Code directory found"
@@ -74,7 +69,6 @@ check_prereqs() {
 uninstall() {
     info "Uninstalling auto-reflect..."
 
-    # Remove hook from settings.json (atomic: write to temp, then mv)
     if [ -f "$SETTINGS" ] && command -v jq &>/dev/null; then
         if jq -e '.hooks.SessionEnd' "$SETTINGS" &>/dev/null; then
             TMP1=$(mktemp) TMP2=$(mktemp)
@@ -91,19 +85,11 @@ uninstall() {
         fi
     fi
 
-    # Remove slash command
     if [ -f "$CLAUDE_DIR/commands/auto-reflect.md" ]; then
         rm "$CLAUDE_DIR/commands/auto-reflect.md"
         ok "Removed /auto-reflect command"
     fi
 
-    # Remove cron entry (match specific marker comment, not just any "auto-reflect")
-    if crontab -l 2>/dev/null | grep -q "# auto-reflect catch-up"; then
-        crontab -l 2>/dev/null | grep -v "# auto-reflect catch-up" | crontab -
-        ok "Removed cron job"
-    fi
-
-    # Remove pip-installed package
     if python3 -m pip show claude-auto-reflect &>/dev/null 2>&1; then
         python3 -m pip uninstall -y claude-auto-reflect --quiet 2>/dev/null || true
         ok "Removed pip package"
@@ -121,62 +107,42 @@ uninstall() {
 
 install_package() {
     info "Installing auto_reflect Python package..."
-
-    # Install in development mode so scripts are importable
     cd "$REPO_DIR"
     if python3 -m pip install -e . --quiet 2>/dev/null; then
         ok "Package installed (pip editable mode)"
     else
-        # Fallback: add to PYTHONPATH
         warn "pip install failed — falling back to PYTHONPATH"
         SHELL_RC=""
-        if [ -f "$HOME/.zshrc" ]; then
-            SHELL_RC="$HOME/.zshrc"
-        elif [ -f "$HOME/.bashrc" ]; then
-            SHELL_RC="$HOME/.bashrc"
-        fi
-        if [ -n "$SHELL_RC" ]; then
-            if ! grep -q "AUTO_REFLECT" "$SHELL_RC" 2>/dev/null; then
-                echo "" >> "$SHELL_RC"
-                echo "# Auto-reflect for Claude Code" >> "$SHELL_RC"
-                echo "export PYTHONPATH=\"$REPO_DIR:\${PYTHONPATH:-}\"" >> "$SHELL_RC"
-                ok "Added PYTHONPATH to $SHELL_RC (restart shell or source it)"
-            fi
-        else
-            warn "Add this to your shell profile:"
-            echo "    export PYTHONPATH=\"$REPO_DIR:\${PYTHONPATH:-}\""
+        [ -f "$HOME/.zshrc" ] && SHELL_RC="$HOME/.zshrc"
+        [ -z "$SHELL_RC" ] && [ -f "$HOME/.bashrc" ] && SHELL_RC="$HOME/.bashrc"
+        if [ -n "$SHELL_RC" ] && ! grep -q "AUTO_REFLECT" "$SHELL_RC" 2>/dev/null; then
+            echo "" >> "$SHELL_RC"
+            echo "# Auto-reflect for Claude Code" >> "$SHELL_RC"
+            echo "export PYTHONPATH=\"$REPO_DIR:\${PYTHONPATH:-}\"" >> "$SHELL_RC"
+            ok "Added PYTHONPATH to $SHELL_RC (restart shell or source it)"
         fi
     fi
 }
 
 create_data_dirs() {
     info "Creating data directories..."
-    mkdir -p "$AR_DIR"/{observations,patterns,improvements,baselines}
+    mkdir -p "$AR_DIR"/{observations,patterns,improvements}
     ok "Data directories at $AR_DIR"
 }
 
 install_hook() {
     info "Installing SessionEnd hook..."
-
-    # Make hook executable
     chmod +x "$REPO_DIR/hooks/auto-reflect.sh"
 
-    # Create or update settings.json
     if [ ! -f "$SETTINGS" ]; then
-        cat > "$SETTINGS" << 'SETTINGS_EOF'
-{
-  "hooks": {}
-}
-SETTINGS_EOF
+        echo '{"hooks":{}}' > "$SETTINGS"
     fi
 
-    # Check if hook already exists
     if jq -e '.hooks.SessionEnd[]?.hooks[]? | select(.command | test("auto-reflect"))' "$SETTINGS" &>/dev/null; then
         ok "SessionEnd hook already configured"
         return
     fi
 
-    # Add the hook entry (atomic: write to temp, then mv)
     HOOK_CMD="$REPO_DIR/hooks/auto-reflect.sh"
     TMP=$(mktemp)
     trap 'rm -f "$TMP"' EXIT
@@ -200,53 +166,26 @@ install_command() {
     ok "/auto-reflect command available"
 }
 
-install_cron() {
-    info "Installing cron job (every 6 hours)..."
-
-    chmod +x "$REPO_DIR/cron/batch-catchup.sh"
-
-    CRON_CMD="0 */6 * * * $REPO_DIR/cron/batch-catchup.sh"
-
-    if crontab -l 2>/dev/null | grep -q "auto-reflect"; then
-        ok "Cron job already exists"
-        return
-    fi
-
-    (crontab -l 2>/dev/null; echo "$CRON_CMD  # auto-reflect catch-up") | crontab -
-    ok "Cron job installed: every 6 hours"
-}
-
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 echo ""
-echo "╔══════════════════════════════════════╗"
-echo "║     Auto-Reflect for Claude Code     ║"
-echo "║   Self-Improving Agent Feedback Loop ║"
-echo "╚══════════════════════════════════════╝"
+echo "Auto-Reflect for Claude Code"
 echo ""
 
-# Handle flags
-WITH_CRON=0
 for arg in "$@"; do
     case $arg in
         --uninstall) uninstall ;;
-        --with-cron) WITH_CRON=1 ;;
         --help|-h)
-            echo "Usage: ./install.sh [--with-cron] [--uninstall]"
-            echo ""
-            echo "  --with-cron   Also install cron job for batch catch-up"
-            echo "  --uninstall   Remove hooks, commands, and cron entries"
+            echo "Usage: ./install.sh [--uninstall]"
             exit 0
             ;;
         *)
             error "Unknown flag: $arg"
-            echo "Usage: ./install.sh [--with-cron] [--uninstall] [--help]"
             exit 1
             ;;
     esac
 done
 
-# Run installation steps
 check_prereqs
 echo ""
 install_package
@@ -254,34 +193,15 @@ create_data_dirs
 install_hook
 install_command
 
-if [ "$WITH_CRON" -eq 1 ]; then
-    install_cron
-else
-    echo ""
-    info "Optional: install cron job for missed session catch-up:"
-    echo "    ./install.sh --with-cron"
-fi
-
-# ─── Summary ─────────────────────────────────────────────────────────────────
-
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 ok "Installation complete!"
 echo ""
 echo "  How it works:"
-echo "    1. Every session exit → auto-scored (background, non-blocking)"
-echo "    2. Patterns detected across all sessions"
-echo "    3. Concrete improvement proposals generated"
+echo "    1. Every session end → analyzed + scored (background)"
+echo "    2. Patterns detected across all sessions (10+ obs needed)"
+echo "    3. Run /auto-reflect to generate proposals + review them"
 echo "    4. You approve or reject — nothing auto-applies"
 echo ""
-echo "  Try it:"
-echo "    /auto-reflect              # in Claude Code"
-echo "    python3 -m auto_reflect.orchestrate --status"
-echo ""
-echo "  Optional status line integration:"
-echo "    Add to your ~/.claude/settings.json statusLine command:"
-echo "    R:\$(${REPO_DIR}/hooks/reflect-status.sh)"
-echo ""
-echo "  Uninstall:"
-echo "    ./install.sh --uninstall"
+echo "  Uninstall: ./install.sh --uninstall"
 echo ""

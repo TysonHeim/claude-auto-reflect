@@ -543,7 +543,7 @@ def generate_pattern_proposals(patterns):
                 "content": {
                     "target": "Session quality trend",
                     "issue": f"Score declining: recent avg {p.get('recent_avg', 0)} vs earlier {p.get('earlier_avg', 0)} (delta: {p.get('delta', 0)})",
-                    "suggestion": "Review recent low-scoring sessions for systemic issues. Run deep_analyze on sessions scoring <80.",
+                    "suggestion": "Review recent low-scoring sessions for systemic issues. Inspect transcripts of sessions scoring <80.",
                     "priority": "high",
                 },
                 "source": "auto-reflect",

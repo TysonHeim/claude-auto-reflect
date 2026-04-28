@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "claude-auto-reflect"
-version = "0.1.0"
+version = "0.2.0"
 description = "Self-improvement feedback loop for Claude Code"
 readme = "README.md"
 license = "MIT"
@@ -14,11 +14,8 @@ requires-python = ">=3.8"
 [tool.setuptools.packages.find]
 include = ["auto_reflect*"]
 
-[tool.setuptools.package-data]
-auto_reflect = ["dashboard-template.html"]
-
 [project.scripts]
-auto-reflect = "auto_reflect.orchestrate:main"
 auto-reflect-analyze = "auto_reflect.analyze_session:main"
+auto-reflect-detect = "auto_reflect.detect_patterns:main"
+auto-reflect-propose = "auto_reflect.propose_improvements:main"
 auto-reflect-proposals = "auto_reflect.proposals:main"
-auto-reflect-eval-gate = "auto_reflect.eval_gate:main"

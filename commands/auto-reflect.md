@@ -4,102 +4,74 @@ description: "Analyze session performance, detect patterns across sessions, and 
 
 # Auto-Reflect: Self-Improvement Loop
 
-You are running the auto-reflect loop — a self-improvement system that analyzes session performance, detects patterns across sessions, and proposes concrete improvements validated by evals.
+A simple loop: analyze session → detect cross-session patterns → propose improvements → user approves.
 
-## Quick Status Check
+## Run the loop
 
-First, check the current state of the system:
-
+Analyze the latest session:
 ```bash
-python3 -m auto_reflect.orchestrate --status
+python3 -m auto_reflect.analyze_session --latest
 ```
 
-## Full Analysis Loop
-
-Run the orchestrator for the full pipeline (analyze → detect → propose):
-
+Detect patterns across all observations (needs ~10+ sessions for signal):
 ```bash
-python3 -m auto_reflect.orchestrate --latest
+python3 -m auto_reflect.detect_patterns
 ```
 
-Or for batch analysis of recent sessions:
-
+Generate proposals from observations + patterns:
 ```bash
-python3 -m auto_reflect.orchestrate --batch 10
+python3 -m auto_reflect.propose_improvements
 ```
 
-## Contextual Self-Assessment
+The SessionEnd hook runs the first two automatically. You usually only need to run `propose_improvements` and then review.
 
-Beyond the automated metrics, reflect on the current session and assess:
+## Contextual self-assessment
 
-1. **Goal achievement** — Did the user get what they asked for? Were there detours?
+Beyond the automated metrics, reflect on the current session:
+
+1. **Goal achievement** — Did the user get what they asked for?
 2. **Approach quality** — Was the first approach correct, or were there false starts?
-3. **Tool efficiency** — Were the right tools used? Any unnecessary tool calls?
+3. **Tool efficiency** — Were the right tools used?
 4. **Skill awareness** — Were relevant skills invoked when they should have been?
-5. **Communication** — Was output concise? Did the user have to repeat themselves?
+5. **Communication** — Was output concise?
 
 Write a brief (3-5 sentence) qualitative assessment.
 
-## Managing Proposals
+## Review proposals
 
-List pending proposals:
 ```bash
 python3 -m auto_reflect.proposals --list
 ```
 
-Present each proposal to the user with a numbered list. After the user indicates which to approve:
+Present each proposal to the user as a numbered list. Then:
 
 ```bash
-# Approve specific proposals
 python3 -m auto_reflect.proposals --approve 1,3,5
-
-# Reject specific proposals
 python3 -m auto_reflect.proposals --reject 2,4
-
-# Reject all remaining after a review batch
-python3 -m auto_reflect.proposals --reject-all
+python3 -m auto_reflect.proposals --reject-all      # batch cleanup
+python3 -m auto_reflect.proposals --expire          # auto-reject >7 days old
 ```
 
-**Proposals expire after 7 days** — any not reviewed in time are auto-rejected by the cron job.
+## Executing approved proposals
 
-## Executing Approved Proposals
-
-After the user approves proposals, execute them:
-
-### Feedback Memories
+### Feedback memories
 - Draft a concrete feedback memory with the pattern, **Why**, and **How to apply**
 - Check existing memories for duplicates
-- Save the memory file and update your memory index
+- Save the memory file and update the memory index
 
-### Skill Patches
-- Identify the specific skill file that needs updating
+### Skill patches
+- Identify the skill file
 - Draft the exact change (section, current content, proposed content)
-- **Run eval gate before applying**: `python3 -m auto_reflect.eval_gate --skill <name> --validate`
-- Only apply if gate passes (no regression >10%)
+- Apply it
 
 ### Investigations
-- List the specific sessions contributing to the issue
+- List the sessions contributing to the issue
 - Identify common factors
 - Propose a focused investigation plan
 
-## Summary Format
-
-Present a concise summary:
-
-```
-Session Score: XX/100
-Observations: X total (X new)
-Avg Score (last 10): XX/100
-Patterns: X detected
-Proposals: X pending review (X expiring soon)
-Eval Gate: X skills baselined
-```
-
-## Important Rules
+## Rules
 
 - NEVER auto-apply improvements without user approval
-- Always save the observation (analyzer does this automatically)
 - Be honest about the score — don't inflate it
 - Focus on high-impact, recurring issues — not one-off problems
-- Run eval gate on any skill change before applying
-- Proposals not reviewed within 7 days are auto-rejected
+- Proposals not reviewed within 7 days are auto-rejected (run `--expire`)
