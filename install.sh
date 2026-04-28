@@ -3,6 +3,7 @@
 #
 # Usage:
 #   ./install.sh              # install
+#   ./install.sh --check      # smoke-test the install (idempotent, safe)
 #   ./install.sh --uninstall  # remove
 
 set -euo pipefail
@@ -166,6 +167,61 @@ install_command() {
     ok "/auto-reflect command available"
 }
 
+# ─── Smoke check ─────────────────────────────────────────────────────────────
+
+run_check() {
+    local fail=0
+
+    info "1. Python imports"
+    if python3 -c "from auto_reflect import analyze_session, detect_patterns, propose_improvements, proposals, config" 2>/dev/null; then
+        ok "all modules importable"
+    else
+        error "import failed — run ./install.sh first?"
+        fail=1
+    fi
+
+    info "2. SessionEnd hook wired"
+    if [ -f "$SETTINGS" ] && jq -e '.hooks.SessionEnd[]?.hooks[]? | select(.command | test("auto-reflect"))' "$SETTINGS" &>/dev/null; then
+        ok "hook present in $SETTINGS"
+    else
+        error "no auto-reflect hook in $SETTINGS — re-run ./install.sh"
+        fail=1
+    fi
+
+    info "3. Slash command installed"
+    if [ -f "$CLAUDE_DIR/commands/auto-reflect.md" ]; then
+        ok "/auto-reflect available"
+    else
+        error "/auto-reflect command missing"
+        fail=1
+    fi
+
+    info "4. Data directories writable"
+    if [ -w "$AR_DIR/observations" ] && [ -w "$AR_DIR/patterns" ] && [ -w "$AR_DIR/improvements" ]; then
+        ok "$AR_DIR/{observations,patterns,improvements}"
+    else
+        error "data dirs missing or unwritable: $AR_DIR"
+        fail=1
+    fi
+
+    info "5. End-to-end pipeline (fixture, hermetic tmpdir)"
+    if python3 "$REPO_DIR/tests/test_smoke.py" >/tmp/auto-reflect-check.log 2>&1; then
+        ok "fixture pipeline runs (analyze → detect → propose → list)"
+    else
+        error "smoke pipeline failed — see /tmp/auto-reflect-check.log"
+        fail=1
+    fi
+
+    echo ""
+    if [ "$fail" -eq 0 ]; then
+        ok "All checks passed. /auto-reflect is ready."
+        exit 0
+    else
+        error "Some checks failed. See messages above."
+        exit 1
+    fi
+}
+
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 echo ""
@@ -175,8 +231,9 @@ echo ""
 for arg in "$@"; do
     case $arg in
         --uninstall) uninstall ;;
+        --check)     run_check ;;
         --help|-h)
-            echo "Usage: ./install.sh [--uninstall]"
+            echo "Usage: ./install.sh [--check] [--uninstall]"
             exit 0
             ;;
         *)
@@ -203,5 +260,6 @@ echo "    2. Patterns detected across all sessions (10+ obs needed)"
 echo "    3. Run /auto-reflect to generate proposals + review them"
 echo "    4. You approve or reject — nothing auto-applies"
 echo ""
+echo "  Verify:    ./install.sh --check"
 echo "  Uninstall: ./install.sh --uninstall"
 echo ""

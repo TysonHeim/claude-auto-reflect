@@ -63,14 +63,23 @@ def test_score_trends_need_minimum():
 
 
 def test_score_decline_detected():
-    # 25 observations: first 20 score 95, last 5 score 70
-    obs = make_observations(20, score=95) + make_observations(5, score=70)
-    # Fix timestamps so sorting works
-    for i, o in enumerate(obs):
-        o["start_time"] = f"2026-03-{i+1:02d}T10:00:00Z" if i < 28 else f"2026-04-{i-27:02d}T10:00:00Z"
-    patterns = detect_score_trends(obs)
+    # detect_score_trends uses a sliding peer window (default 40).
+    # Build 30 obs and pass window=10: earlier window scores 95, recent window
+    # scores 70 — delta of -25 should trigger score_decline.
+    obs = []
+    for i in range(30):
+        obs.append({
+            "score": 95 if i < 20 else 70,
+            "tool_distribution": {"Edit": 10},
+            "error_distribution": {},
+            "corrections": [],
+            "retries": [],
+            "skills_used": [],
+            "start_time": f"2026-03-{i+1:02d}T10:00:00Z",
+        })
+    patterns = detect_score_trends(obs, window=10)
     decline = [p for p in patterns if p["type"] == "score_decline"]
-    assert len(decline) == 1, f"Expected score decline, got {len(decline)}"
+    assert len(decline) == 1, f"Expected score decline, got {len(decline)}: {patterns}"
     print("  ✓ score_decline detected")
 
 

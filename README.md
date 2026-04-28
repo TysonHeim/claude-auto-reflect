@@ -24,19 +24,32 @@ Session ends → Hook scores transcript → Observation saved
 - jq
 - Claude Code (`~/.claude` exists)
 
-## Install
+## First 5 minutes
 
 ```bash
 git clone https://github.com/TysonHeim/claude-auto-reflect.git
 cd claude-auto-reflect
-./install.sh
+./install.sh           # install hook + slash command
+./install.sh --check   # smoke-test the install (idempotent)
 ```
 
-The installer:
-- Installs the Python package (editable mode)
+You should see five green checks ending in `All checks passed. /auto-reflect is ready.`
+
+That's it. Open Claude Code, work normally, end a session — a JSON observation
+appears in `~/.claude/auto-reflect/observations/`. Run `/auto-reflect` after a
+handful of sessions to see proposals.
+
+See [`examples/QUICKSTART.md`](examples/QUICKSTART.md) for what each artifact
+(observation / pattern / proposal) looks like in plain English.
+
+## What the installer does
+
+- Installs the Python package (editable mode, stdlib-only — no deps)
 - Creates `~/.claude/auto-reflect/{observations,patterns,improvements}`
 - Adds the `SessionEnd` hook to `~/.claude/settings.json`
-- Installs the `/auto-reflect` slash command
+- Installs the `/auto-reflect` slash command at `~/.claude/commands/auto-reflect.md`
+
+Re-run `./install.sh --check` anytime to verify everything's still wired correctly.
 
 ## Usage
 
@@ -131,6 +144,24 @@ Override via environment variables:
 ```
 
 All data regenerable from session transcripts.
+
+## Tests
+
+Stdlib-only test runner — no pytest, no extras to install:
+
+```bash
+python3 tests/run_all.py        # discover + run every tests/test_*.py
+python3 tests/run_all.py -v     # show stdout from each test
+```
+
+The suite includes:
+- `test_analyze.py` — transcript parsing, scoring, retry/correction detection
+- `test_detect.py` — cross-session pattern detection thresholds
+- `test_propose.py` — clustering, deduplication, proposal generation
+- `test_proposals.py` — list/approve/reject/expire round-trips
+- `test_smoke.py` — full pipeline end-to-end on a fixture transcript (hermetic tmpdir)
+
+CI runs the full suite on Python 3.8 / 3.10 / 3.12 (see `.github/workflows/test.yml`).
 
 ## Uninstall
 
