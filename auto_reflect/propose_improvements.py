@@ -515,17 +515,18 @@ def generate_pattern_proposals(patterns):
 
         elif p["type"] == "frequent_retries":
             tool = p.get("tool", "unknown")
-            rate = p.get("retry_rate", 0)
+            retry_count = p.get("retry_count", 0)
+            sessions = p.get("sessions_affected", 0)
             proposals.append({
                 "type": "claude_md_patch",
                 "status": "pending_review",
-                "_summary": f"frequent {tool} retries: {int(rate * 100)}%",
+                "_summary": f"frequent {tool} retries: {retry_count} across {sessions} sessions",
                 "content": {
                     "target": "CLAUDE.md",
                     "section": "Corrections",
-                    "description": f"{tool} retried in {int(rate * 100)}% of sessions ({p.get('sessions_affected', 0)} sessions, {p.get('total_retries', 0)} retries total). Consider a CLAUDE.md rule that prevents the failed-then-corrected pattern.",
+                    "description": f"{tool} required retries {retry_count} times across {sessions} sessions. Consider a CLAUDE.md rule that prevents the failed-then-corrected pattern.",
                     "rule": f"(propose a rule for {tool} usage based on the retry patterns observed)",
-                    "evidence": f"{p.get('total_retries', 0)} retries across {p.get('sessions_affected', 0)} sessions ({int(rate * 100)}% rate)",
+                    "evidence": f"{retry_count} retries across {sessions} sessions",
                     "priority": "medium",
                 },
                 "source": "auto-reflect",

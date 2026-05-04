@@ -125,13 +125,50 @@ def test_no_feedback_memory_anywhere():
         {"type": "score_decline", "recent_avg": 70.0, "earlier_avg": 90.0, "delta": -20.0},
         {"type": "frequent_tool_errors", "tool": "Bash", "error_rate": 0.5,
          "total_errors": 30, "sessions_affected": 15},
-        {"type": "frequent_retries", "tool": "Edit", "retry_rate": 0.4,
-         "total_retries": 8, "sessions_affected": 5},
+        {"type": "frequent_retries", "tool": "Edit", "retry_count": 8,
+         "sessions_affected": 5},
     ]
     props = generate_pattern_proposals(patterns)
     for p in props:
         assert p["type"] != "feedback_memory", f"feedback_memory leaked: {p}"
     print("  ✓ no proposal type is feedback_memory")
+
+
+def test_detector_to_proposer_schema_alignment():
+    """Drive real detect_patterns output into generate_pattern_proposals.
+
+    Catches schema drift between the detector and the proposer — e.g. detector
+    emitting `retry_count` while proposer reads `retry_rate`.
+    """
+    from auto_reflect.detect_patterns import (
+        detect_error_patterns,
+        detect_retry_patterns,
+    )
+
+    # Synthetic observations with enough volume to trip detection thresholds
+    observations = []
+    for i in range(30):
+        observations.append({
+            "session_id": f"s{i}",
+            "tools_used": [
+                {"name": "Edit", "is_error": True if i < 20 else False}
+                for _ in range(2)
+            ],
+            "retries": [{"tool": "Edit"}] * 3 if i < 15 else [],
+            "score": 70,
+        })
+
+    patterns = []
+    patterns.extend(detect_error_patterns(observations))
+    patterns.extend(detect_retry_patterns(observations))
+    proposals = generate_pattern_proposals(patterns)
+
+    # If schemas drift, evidence strings will say 0% / 0 retries — assert against that
+    for p in proposals:
+        evidence = p["content"].get("evidence", "")
+        assert "0 errors" not in evidence, f"frequent_tool_errors schema drift: {p}"
+        assert "0 retries across 0 sessions" not in evidence, f"frequent_retries schema drift: {p}"
+    print("  ✓ detector → proposer schema alignment")
 
 
 if __name__ == "__main__":
@@ -146,4 +183,5 @@ if __name__ == "__main__":
     test_generate_pattern_proposals_score_decline()
     test_generate_pattern_proposals_tool_errors_route_to_claude_md()
     test_no_feedback_memory_anywhere()
+    test_detector_to_proposer_schema_alignment()
     print("\nAll tests passed!")
