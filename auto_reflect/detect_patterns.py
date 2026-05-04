@@ -295,7 +295,7 @@ def generate_improvement_proposals(all_patterns):
                 "proposal": f"Skills used in only {p['sessions_with_skills']}/{p['sessions_with_skills'] + p['sessions_without_skills']} sessions. "
                            f"Score with skills: {p['avg_score_with']} vs without: {p['avg_score_without']}. "
                            f"Consider improving skill trigger descriptions.",
-                "action": "agent_patch",
+                "action": "investigation",
                 "priority": "medium",
             })
 
