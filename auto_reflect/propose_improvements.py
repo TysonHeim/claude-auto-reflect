@@ -460,71 +460,11 @@ def categorize_errors(tool, messages):
 
 # --- Proposal Generation ---
 
-def generate_correction_proposals(clusters):
-    """Generate proposals from correction clusters."""
-    proposals = []
-    for cluster in clusters[:5]:  # Top 5 clusters
-        count = len(cluster["items"])
-        sessions = len(cluster["sessions"])
-        representative = cluster["representative"]
-
-        # Extract the core instruction from the correction
-        summary = representative[:200]
-
-        proposals.append({
-            "type": "feedback_memory",
-            "status": "pending_review",
-            "_summary": f"correction cluster ({count}x): {summary[:60]}",
-            "content": {
-                "name": f"feedback-{datetime.now().strftime('%Y%m%d-%H%M%S')}-cluster",
-                "description": f"Recurring correction ({count}x across {sessions} sessions): {summary[:80]}",
-                "memory_type": "feedback",
-                "body": summary,
-                "evidence": f"{count} occurrences across {sessions} sessions",
-                "sample_sessions": list(cluster["sessions"])[:3],
-            },
-            "source": "auto-reflect",
-            "created": datetime.now().isoformat(),
-        })
-
-    return proposals
-
-
-# Error categories that are expected/non-actionable -- don't propose fixes
-NON_ACTIONABLE_CATEGORIES = {
-    "permission-blocked", "cancelled-parallel", "user-rejected",
-    "nonzero-exit",  # Too generic
-}
-
-
-def generate_error_proposals(error_findings):
-    """Generate proposals from error message analysis."""
-    proposals = []
-    for finding in error_findings[:5]:  # Top 5 error patterns
-        if finding["percentage"] < 10:
-            continue  # Skip rare error categories
-        if finding["category"] in NON_ACTIONABLE_CATEGORIES:
-            continue  # Skip expected/non-actionable errors
-        if finding["category"] == "other":
-            continue  # Skip uncategorized -- need more specific patterns first
-
-        proposals.append({
-            "type": "feedback_memory",
-            "status": "pending_review",
-            "_summary": f"{finding['tool']} {finding['category']}: {finding['description'][:50]}",
-            "content": {
-                "name": f"feedback-{finding['tool'].lower()}-{finding['category']}",
-                "description": f"{finding['tool']} error pattern: {finding['description']}",
-                "memory_type": "feedback",
-                "body": finding["fix"],
-                "evidence": f"{finding['count']}/{finding['total_errors']} {finding['tool']} errors ({finding['percentage']:.0f}%)",
-                "samples": finding["sample"],
-            },
-            "source": "auto-reflect",
-            "created": datetime.now().isoformat(),
-        })
-
-    return proposals
+# NOTE (2026-05-04): generate_correction_proposals and generate_error_proposals
+# were removed — they emitted feedback_memory proposals, which the user no
+# longer wants. Correction-driven proposals now flow through
+# generate_claude_md_proposals, which targets CLAUDE.md directly and skips
+# clusters already covered by an existing rule.
 
 
 def generate_pattern_proposals(patterns):
@@ -1345,15 +1285,15 @@ def main():
 
     new_proposals = []
 
-    # 1. Cluster corrections and generate proposals
+    # Cluster corrections (still needed as input to generate_claude_md_proposals).
+    # NOTE (2026-05-04): generate_correction_proposals + generate_error_proposals
+    # were removed — they emitted feedback_memory proposals, which the user no
+    # longer wants. All correction-driven proposals now flow through
+    # generate_claude_md_proposals (step 5 below), which targets CLAUDE.md
+    # directly and skips clusters already covered by an existing rule.
     clusters = cluster_corrections(observations)
-    new_proposals.extend(generate_correction_proposals(clusters))
 
-    # 2. Analyze error messages for specific patterns
-    error_findings = analyze_error_messages(observations)
-    new_proposals.extend(generate_error_proposals(error_findings))
-
-    # 3. Generate proposals from high-level patterns (only actionable ones)
+    # Generate proposals from high-level patterns (only actionable ones)
     new_proposals.extend(generate_pattern_proposals(patterns))
 
     # 4. Generate agent improvement proposals
