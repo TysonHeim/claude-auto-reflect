@@ -15,7 +15,6 @@ from auto_reflect.propose_improvements import (
     filter_rejected,
     _dedupe_fingerprint,
     is_rejected,
-    generate_correction_proposals,
     generate_pattern_proposals,
 )
 
@@ -98,38 +97,41 @@ def test_filter_rejected_uses_cache():
     print("  ✓ filter_rejected drops cached rejections")
 
 
-def test_generate_correction_proposals_shape():
-    clusters = [
-        {
-            "representative": "use the project logger, not console.log",
-            "items": [
-                {"text": "use logger", "session_id": "a"},
-                {"text": "use logger", "session_id": "b"},
-                {"text": "use logger", "session_id": "c"},
-            ],
-            "sessions": {"a", "b", "c"},
-        }
-    ]
-    props = generate_correction_proposals(clusters)
-    assert len(props) == 1
-    p = props[0]
-    assert p["type"] == "feedback_memory"
-    assert p["status"] == "pending_review"
-    assert "body" in p["content"]
-    assert "evidence" in p["content"]
-    assert p["source"] == "auto-reflect"
-    print("  ✓ generate_correction_proposals shape")
-
-
 def test_generate_pattern_proposals_score_decline():
     patterns = [
         {"type": "score_decline", "recent_avg": 70.0, "earlier_avg": 90.0, "delta": -20.0},
-        {"type": "frequent_tool_errors", "tool": "Edit", "error_rate": 0.6},  # ignored here
     ]
     props = generate_pattern_proposals(patterns)
     types = {p["type"] for p in props}
     assert "investigation" in types, f"Expected investigation proposal, got {types}"
     print("  ✓ generate_pattern_proposals: score_decline → investigation")
+
+
+def test_generate_pattern_proposals_tool_errors_route_to_claude_md():
+    patterns = [
+        {"type": "frequent_tool_errors", "tool": "Edit", "error_rate": 0.6,
+         "total_errors": 12, "sessions_affected": 9},
+    ]
+    props = generate_pattern_proposals(patterns)
+    types = {p["type"] for p in props}
+    assert "claude_md_patch" in types, f"Expected claude_md_patch, got {types}"
+    assert "feedback_memory" not in types, "feedback_memory must never be generated"
+    print("  ✓ generate_pattern_proposals: frequent_tool_errors → claude_md_patch")
+
+
+def test_no_feedback_memory_anywhere():
+    """Regression guard — auto-reflect must never propose creating a memory file."""
+    patterns = [
+        {"type": "score_decline", "recent_avg": 70.0, "earlier_avg": 90.0, "delta": -20.0},
+        {"type": "frequent_tool_errors", "tool": "Bash", "error_rate": 0.5,
+         "total_errors": 30, "sessions_affected": 15},
+        {"type": "frequent_retries", "tool": "Edit", "retry_rate": 0.4,
+         "total_retries": 8, "sessions_affected": 5},
+    ]
+    props = generate_pattern_proposals(patterns)
+    for p in props:
+        assert p["type"] != "feedback_memory", f"feedback_memory leaked: {p}"
+    print("  ✓ no proposal type is feedback_memory")
 
 
 if __name__ == "__main__":
@@ -141,6 +143,7 @@ if __name__ == "__main__":
     test_dedupe_fingerprint_stable()
     test_deduplicate_against_existing()
     test_filter_rejected_uses_cache()
-    test_generate_correction_proposals_shape()
     test_generate_pattern_proposals_score_decline()
+    test_generate_pattern_proposals_tool_errors_route_to_claude_md()
+    test_no_feedback_memory_anywhere()
     print("\nAll tests passed!")

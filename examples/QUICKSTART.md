@@ -53,13 +53,14 @@ patterns, 80+ observations for trend detection (sliding peer window).
 
 ```json
 {
-  "type": "feedback_memory",
+  "type": "claude_md_patch",
   "status": "pending_review",
   "content": {
-    "name": "feedback-edit-old-string",
-    "memory_type": "feedback",
-    "body": "Read files with the Read tool before Edit. The Edit tool requires exact-match old_string and fails silently when content was modified or never read.",
-    "evidence": "9/13 Edit errors (69%)"
+    "target": "CLAUDE.md",
+    "section": "Corrections",
+    "description": "Edit errors in 69% of sessions. Consider adding a CLAUDE.md rule that addresses the most common cause.",
+    "rule": "(propose a rule for Edit usage based on the error patterns observed)",
+    "evidence": "9 errors across 6 sessions (69% rate)"
   }
 }
 ```

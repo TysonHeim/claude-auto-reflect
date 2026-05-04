@@ -95,12 +95,10 @@ Cross-session pattern detection requires statistical signal:
 
 | Type | Source | Action |
 |------|--------|--------|
-| `feedback_memory` | Corrections, error patterns | Create a memory file |
-| `skill_patch` | Tool error patterns, retries | Edit a skill to add guards |
-| `claude_md_patch` | Recurring corrections (3+ sessions) | Add a CLAUDE.md rule |
+| `claude_md_patch` | Recurring corrections (3+ sessions), tool error rates, retry rates | Add a CLAUDE.md rule |
 | `memory_cleanup` | Stale/redundant memories | Clean up memory files |
 | `agent_patch` | Agent error rates >30% | Fix agent definition |
-| `investigation` | Score decline | Review systemic issues |
+| `investigation` | Score decline, correction themes | Review systemic issues |
 
 Proposals expire after 7 days if not reviewed.
 

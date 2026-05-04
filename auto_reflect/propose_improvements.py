@@ -468,13 +468,17 @@ def categorize_errors(tool, messages):
 
 
 def generate_pattern_proposals(patterns):
-    """Generate proposals from detected patterns -- only for score declines and corrections."""
+    """Generate proposals from detected patterns.
+
+    Routes:
+    - score_decline → investigation
+    - frequent_tool_errors / frequent_retries → claude_md_patch (was previously
+      handled by the now-removed feedback_memory path; routed to CLAUDE.md so
+      the signal isn't silently dropped)
+    - recurring_corrections with themes → investigation
+    """
     proposals = []
     for p in patterns:
-        # Only generate proposals for patterns that are genuinely actionable
-        # Skip: frequent_tool_errors, frequent_retries, low_skill_usage
-        # (these are now handled by error message analysis and correction clustering)
-
         if p["type"] == "score_decline":
             proposals.append({
                 "type": "investigation",
@@ -490,9 +494,45 @@ def generate_pattern_proposals(patterns):
                 "created": datetime.now().isoformat(),
             })
 
+        elif p["type"] == "frequent_tool_errors":
+            tool = p.get("tool", "unknown")
+            rate = p.get("error_rate", 0)
+            proposals.append({
+                "type": "claude_md_patch",
+                "status": "pending_review",
+                "_summary": f"high {tool} error rate: {int(rate * 100)}%",
+                "content": {
+                    "target": "CLAUDE.md",
+                    "section": "Corrections",
+                    "description": f"{tool} errors in {int(rate * 100)}% of sessions ({p.get('sessions_affected', 0)} sessions, {p.get('total_errors', 0)} errors total). Consider adding a CLAUDE.md rule that addresses the most common cause.",
+                    "rule": f"(propose a rule for {tool} usage based on the error patterns observed)",
+                    "evidence": f"{p.get('total_errors', 0)} errors across {p.get('sessions_affected', 0)} sessions ({int(rate * 100)}% rate)",
+                    "priority": "high" if rate >= 0.5 else "medium",
+                },
+                "source": "auto-reflect",
+                "created": datetime.now().isoformat(),
+            })
+
+        elif p["type"] == "frequent_retries":
+            tool = p.get("tool", "unknown")
+            rate = p.get("retry_rate", 0)
+            proposals.append({
+                "type": "claude_md_patch",
+                "status": "pending_review",
+                "_summary": f"frequent {tool} retries: {int(rate * 100)}%",
+                "content": {
+                    "target": "CLAUDE.md",
+                    "section": "Corrections",
+                    "description": f"{tool} retried in {int(rate * 100)}% of sessions ({p.get('sessions_affected', 0)} sessions, {p.get('total_retries', 0)} retries total). Consider a CLAUDE.md rule that prevents the failed-then-corrected pattern.",
+                    "rule": f"(propose a rule for {tool} usage based on the retry patterns observed)",
+                    "evidence": f"{p.get('total_retries', 0)} retries across {p.get('sessions_affected', 0)} sessions ({int(rate * 100)}% rate)",
+                    "priority": "medium",
+                },
+                "source": "auto-reflect",
+                "created": datetime.now().isoformat(),
+            })
+
         elif p["type"] == "recurring_corrections" and p.get("sample_corrections"):
-            # This is now mostly handled by correction clustering,
-            # but include a summary if themes are interesting
             themes = p.get("top_themes", [])
             if themes:
                 proposals.append({
@@ -502,7 +542,7 @@ def generate_pattern_proposals(patterns):
                     "content": {
                         "target": "Recurring correction themes",
                         "issue": f"Corrections cluster around themes: {', '.join(themes)}",
-                        "suggestion": "Review correction clusters in detail. Consider adding feedback memories for the top themes.",
+                        "suggestion": "Review correction clusters. Consider adding a CLAUDE.md rule for the top themes.",
                         "priority": "medium",
                         "samples": p.get("sample_corrections", [])[:3],
                     },
