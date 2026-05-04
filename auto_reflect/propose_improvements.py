@@ -472,9 +472,11 @@ def generate_pattern_proposals(patterns):
 
     Routes:
     - score_decline → investigation
-    - frequent_tool_errors / frequent_retries → claude_md_patch (was previously
-      handled by the now-removed feedback_memory path; routed to CLAUDE.md so
-      the signal isn't silently dropped)
+    - frequent_tool_errors / frequent_retries → investigation (surfaces the
+      signal so the user can decide the right CLAUDE.md rule. Was previously
+      routed through the deleted feedback_memory path; emitting concrete
+      claude_md_patch proposals would mean auto-apply wrote placeholder text
+      into CLAUDE.md, which is unsafe — the user must write the rule.)
     - recurring_corrections with themes → investigation
     """
     proposals = []
@@ -497,16 +499,16 @@ def generate_pattern_proposals(patterns):
         elif p["type"] == "frequent_tool_errors":
             tool = p.get("tool", "unknown")
             rate = p.get("error_rate", 0)
+            errors = p.get("total_errors", 0)
+            sessions = p.get("sessions_affected", 0)
             proposals.append({
-                "type": "claude_md_patch",
+                "type": "investigation",
                 "status": "pending_review",
                 "_summary": f"high {tool} error rate: {int(rate * 100)}%",
                 "content": {
-                    "target": "CLAUDE.md",
-                    "section": "Corrections",
-                    "description": f"{tool} errors in {int(rate * 100)}% of sessions ({p.get('sessions_affected', 0)} sessions, {p.get('total_errors', 0)} errors total). Consider adding a CLAUDE.md rule that addresses the most common cause.",
-                    "rule": f"(propose a rule for {tool} usage based on the error patterns observed)",
-                    "evidence": f"{p.get('total_errors', 0)} errors across {p.get('sessions_affected', 0)} sessions ({int(rate * 100)}% rate)",
+                    "target": f"{tool} error pattern",
+                    "issue": f"{tool} errors in {int(rate * 100)}% of sessions ({errors} errors across {sessions} sessions).",
+                    "suggestion": f"Inspect the most common {tool} failure modes (analyze_session output for affected sessions). If a clear pattern emerges, write a CLAUDE.md rule that prevents it.",
                     "priority": "high" if rate >= 0.5 else "medium",
                 },
                 "source": "auto-reflect",
@@ -518,15 +520,13 @@ def generate_pattern_proposals(patterns):
             retry_count = p.get("retry_count", 0)
             sessions = p.get("sessions_affected", 0)
             proposals.append({
-                "type": "claude_md_patch",
+                "type": "investigation",
                 "status": "pending_review",
                 "_summary": f"frequent {tool} retries: {retry_count} across {sessions} sessions",
                 "content": {
-                    "target": "CLAUDE.md",
-                    "section": "Corrections",
-                    "description": f"{tool} required retries {retry_count} times across {sessions} sessions. Consider a CLAUDE.md rule that prevents the failed-then-corrected pattern.",
-                    "rule": f"(propose a rule for {tool} usage based on the retry patterns observed)",
-                    "evidence": f"{retry_count} retries across {sessions} sessions",
+                    "target": f"{tool} retry pattern",
+                    "issue": f"{tool} required retries {retry_count} times across {sessions} sessions.",
+                    "suggestion": f"Inspect the failed-then-corrected sequences for {tool}. If a recurring pre-condition is being missed, write a CLAUDE.md rule that prevents the first failure.",
                     "priority": "medium",
                 },
                 "source": "auto-reflect",

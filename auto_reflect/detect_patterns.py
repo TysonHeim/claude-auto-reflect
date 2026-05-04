@@ -259,8 +259,8 @@ def generate_improvement_proposals(all_patterns):
             proposals.append({
                 "pattern": p,
                 "proposal": f"{p['tool']} fails in {p['error_rate']*100:.0f}% of sessions. "
-                           f"Consider adding a CLAUDE.md rule that addresses the most common cause.",
-                "action": "claude_md_patch",
+                           f"Inspect the most common failure modes and consider a CLAUDE.md rule.",
+                "action": "investigation",
                 "priority": "high" if p["error_rate"] > 0.5 else "medium",
             })
         elif p["type"] == "recurring_corrections":
@@ -268,17 +268,17 @@ def generate_improvement_proposals(all_patterns):
                 "pattern": p,
                 "proposal": f"Human corrected agent in {p['correction_rate']*100:.0f}% of sessions. "
                            f"Top themes: {', '.join(p['top_themes'])}. "
-                           f"Consider adding CLAUDE.md rules for these themes.",
-                "action": "claude_md_patch",
+                           f"Consider CLAUDE.md rules for these themes.",
+                "action": "investigation",
                 "priority": "high",
             })
         elif p["type"] == "frequent_retries":
             proposals.append({
                 "pattern": p,
                 "proposal": f"{p['tool']} required retries {p['retry_count']} times across "
-                           f"{p['sessions_affected']} sessions. Consider a CLAUDE.md rule that "
-                           f"prevents the failed-then-corrected pattern.",
-                "action": "claude_md_patch",
+                           f"{p['sessions_affected']} sessions. Inspect failed-then-corrected "
+                           f"sequences and consider a CLAUDE.md rule.",
+                "action": "investigation",
                 "priority": "medium",
             })
         elif p["type"] == "score_decline":

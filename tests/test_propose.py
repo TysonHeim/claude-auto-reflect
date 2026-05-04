@@ -107,16 +107,43 @@ def test_generate_pattern_proposals_score_decline():
     print("  ✓ generate_pattern_proposals: score_decline → investigation")
 
 
-def test_generate_pattern_proposals_tool_errors_route_to_claude_md():
+def test_generate_pattern_proposals_tool_errors_route_to_investigation():
     patterns = [
         {"type": "frequent_tool_errors", "tool": "Edit", "error_rate": 0.6,
          "total_errors": 12, "sessions_affected": 9},
     ]
     props = generate_pattern_proposals(patterns)
     types = {p["type"] for p in props}
-    assert "claude_md_patch" in types, f"Expected claude_md_patch, got {types}"
+    assert "investigation" in types, f"Expected investigation, got {types}"
     assert "feedback_memory" not in types, "feedback_memory must never be generated"
-    print("  ✓ generate_pattern_proposals: frequent_tool_errors → claude_md_patch")
+    # Must NOT be claude_md_patch — auto-apply would write a generic rule into CLAUDE.md
+    assert "claude_md_patch" not in types, (
+        "frequent_tool_errors must surface as investigation, not claude_md_patch — "
+        "auto-applying a generic rule is unsafe"
+    )
+    print("  ✓ generate_pattern_proposals: frequent_tool_errors → investigation (not claude_md_patch)")
+
+
+def test_no_placeholder_rules_in_proposals():
+    """Auto-apply on claude_md_patch writes content.rule into CLAUDE.md verbatim.
+
+    No proposal may carry a placeholder/template rule string — approving it
+    would corrupt the user's CLAUDE.md with literal placeholder text.
+    """
+    patterns = [
+        {"type": "score_decline", "recent_avg": 70.0, "earlier_avg": 90.0, "delta": -20.0},
+        {"type": "frequent_tool_errors", "tool": "Edit", "error_rate": 0.6,
+         "total_errors": 12, "sessions_affected": 9},
+        {"type": "frequent_retries", "tool": "Bash", "retry_count": 20, "sessions_affected": 8},
+    ]
+    props = generate_pattern_proposals(patterns)
+    for p in props:
+        rule = p["content"].get("rule", "")
+        # Placeholder markers we know we'd never write into CLAUDE.md verbatim
+        forbidden = ["(propose ", "<TODO", "TODO:", "PLACEHOLDER", "FILL IN"]
+        for marker in forbidden:
+            assert marker not in rule, f"placeholder rule '{marker}' in proposal: {p}"
+    print("  ✓ no proposal carries a placeholder rule")
 
 
 def test_no_feedback_memory_anywhere():
@@ -163,11 +190,11 @@ def test_detector_to_proposer_schema_alignment():
     patterns.extend(detect_retry_patterns(observations))
     proposals = generate_pattern_proposals(patterns)
 
-    # If schemas drift, evidence strings will say 0% / 0 retries — assert against that
+    # If schemas drift, the issue strings will say "0 errors" / "0 retries"
     for p in proposals:
-        evidence = p["content"].get("evidence", "")
-        assert "0 errors" not in evidence, f"frequent_tool_errors schema drift: {p}"
-        assert "0 retries across 0 sessions" not in evidence, f"frequent_retries schema drift: {p}"
+        issue = p["content"].get("issue", "")
+        assert "0 errors" not in issue, f"frequent_tool_errors schema drift: {p}"
+        assert "retries 0 times" not in issue, f"frequent_retries schema drift: {p}"
     print("  ✓ detector → proposer schema alignment")
 
 
@@ -181,7 +208,8 @@ if __name__ == "__main__":
     test_deduplicate_against_existing()
     test_filter_rejected_uses_cache()
     test_generate_pattern_proposals_score_decline()
-    test_generate_pattern_proposals_tool_errors_route_to_claude_md()
+    test_generate_pattern_proposals_tool_errors_route_to_investigation()
     test_no_feedback_memory_anywhere()
+    test_no_placeholder_rules_in_proposals()
     test_detector_to_proposer_schema_alignment()
     print("\nAll tests passed!")
